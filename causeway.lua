@@ -2374,7 +2374,7 @@ end
 -- strata voice: melodic (1), chordal (2), or arp (3), sent to Strata over OSC
 local function strata_loop()
   while true do
-    if playing then
+    if playing and params:get("strata_on") == 2 then
       sync_offset()
       drunk_sleep()
       local rate = LEAD_RATES[params:get("strata_rate")]
