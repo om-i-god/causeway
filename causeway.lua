@@ -58,6 +58,31 @@ local lead_active = {}
 local bass_active = {}
 local sec_active  = {}
 local vst_active  = {}
+local strata_active = {}
+
+-- strata (sampler on another norns, over OSC) -------------------------
+local STRATA_HOST = "192.168.1.99"  -- White norns (edit if its IP drifts)
+local STRATA_PORT = 10111           -- norns matron OSC-in
+local strata_clock                  -- coroutine handle
+local strata_pos = 1                -- independent random-walk position
+local strata_dir = 1
+
+local function strata_send(path, ...)
+  if params:get("strata_on") ~= 2 then return end
+  osc.send({STRATA_HOST, STRATA_PORT}, path, {...})
+end
+
+local function strata_note_on(note, vel)
+  strata_send("/strata/noteon", note, vel)
+  table.insert(strata_active, note)
+end
+
+local function strata_note_off(note)
+  strata_send("/strata/noteoff", note)
+  for i = #strata_active, 1, -1 do
+    if strata_active[i] == note then table.remove(strata_active, i); break end
+  end
+end
 
 
 -- lead melodic drift
