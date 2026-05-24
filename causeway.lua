@@ -451,6 +451,9 @@ local function all_notes_off()
     if midi_vst then midi_vst:note_off(n.note, 0, n.ch) end
   end
   vst_active = {}
+  for _, note in ipairs(strata_active) do strata_send("/strata/noteoff", note) end
+  strata_active = {}
+  strata_send("/strata/alloff")
 end
 
 ------------------------------------------------------------------------
@@ -483,6 +486,7 @@ local function active_voice_count()
        + (#bass_active > 0 and 1 or 0)
        + (#sec_active  > 0 and 1 or 0)
        + (#vst_active  > 0 and 1 or 0)
+       + (#strata_active > 0 and 1 or 0)
 end
 
 local function get_osc_prompt()
@@ -2316,6 +2320,16 @@ local function setup_params()
   params:add_number("vst_echo_beats",    "echo delay",    1, 8, 2)
   params:add_number("vst_density", "density", 1, 3, 1)
 
+  params:add_separator("strata (osc)")
+  params:add_option("strata_on",   "strata voice", {"off","on"}, 1)
+  params:add_option("strata_mode", "mode", {"melodic","chordal","arp"}, 1)
+  params:add_option("strata_rate", "rate", LEAD_RATE_NAMES, 2)
+  params:add_option("strata_note_len", "note length", LEN_NAMES, 6)
+  params:add_number("strata_oct", "octave", 1, 7, 4)
+  params:add_number("strata_density", "chord size", 1, 4, 3)
+  params:add_number("strata_vel_min", "vel min", 1, 127, 50)
+  params:add_number("strata_vel_max", "vel max", 1, 127, 100)
+
     params:add_separator("TIMING")
   params:add_option("seq_state", "state", {"stopped","playing"}, 2)
   params:set_action("seq_state", function(v)
@@ -2480,6 +2494,7 @@ function init()
   bass_clock = clock.run(bass_loop)
   sec_clock  = clock.run(sec_loop)
   vst_clock  = clock.run(vst_loop)
+  strata_clock = clock.run(strata_loop)
   fx_clock   = clock.run(fx_loop)
   draw_clock = clock.run(draw_loop)
 end
