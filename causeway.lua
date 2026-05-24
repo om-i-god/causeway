@@ -2345,6 +2345,70 @@ end
 -- init
 ------------------------------------------------------------------------
 
+local function get_strata_note()
+  local notes = get_scale_notes(params:get("oct_low"), params:get("oct_high"))
+  if #notes == 0 then return nil end
+  strata_pos = clamp(strata_pos, 1, #notes)
+  local note = notes[strata_pos]
+  if math.random() < 0.2 then strata_dir = -strata_dir end
+  strata_pos = clamp(strata_pos + strata_dir * math.random(1, 3), 1, #notes)
+  if strata_pos >= #notes then strata_dir = -1
+  elseif strata_pos <= 1 then strata_dir = 1 end
+  return note
+end
+
+-- strata voice: melodic (1), chordal (2), or arp (3), sent to Strata over OSC
+local function strata_loop()
+  while true do
+    if playing then
+      sync_offset()
+      drunk_sleep()
+      local rate = LEAD_RATES[params:get("strata_rate")]
+      local len  = NOTE_LENS[params:get("strata_note_len")]
+      local off_t = math.min(len, rate * 0.95) * 60 / clock.get_tempo()
+      local mode = params:get("strata_mode")
+      local base = get_strata_note()
+      if base then
+        base = clamp(base + (params:get("strata_oct") - 4) * 12, 0, 127)
+        local vel = math.random(params:get("strata_vel_min"),
+                      math.max(params:get("strata_vel_min"), params:get("strata_vel_max")))
+        if mode == 1 then
+          strata_note_on(base, vel)
+          on_note_trigger()
+          local played = base
+          clock.run(function() clock.sleep(off_t); strata_note_off(played) end)
+          clock.sync(rate)
+        elseif mode == 2 then
+          local chord = build_chord(base, params:get("strata_density"))
+          for _, n in ipairs(chord) do strata_note_on(n, vel) end
+          on_note_trigger()
+          local played = chord
+          clock.run(function()
+            clock.sleep(off_t)
+            for _, n in ipairs(played) do strata_note_off(n) end
+          end)
+          clock.sync(rate)
+        else
+          local chord = build_chord(base, params:get("strata_density"))
+          local sub = rate / math.max(1, #chord)
+          local sub_off = math.min(off_t, sub * 0.95 * 60 / clock.get_tempo())
+          for _, n in ipairs(chord) do
+            strata_note_on(n, vel)
+            on_note_trigger()
+            local played = n
+            clock.run(function() clock.sleep(sub_off); strata_note_off(played) end)
+            clock.sync(sub)
+          end
+        end
+      else
+        clock.sync(rate)
+      end
+    else
+      clock.sleep(0.1)
+    end
+  end
+end
+
 function init()
   setup_params()
 
