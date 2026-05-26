@@ -61,7 +61,7 @@ local vst_active  = {}
 local strata_active = {}
 
 -- strata (sampler on another norns, over OSC) -------------------------
-local STRATA_HOST = "192.168.1.99"  -- White norns (edit if its IP drifts)
+local STRATA_HOST = "192.168.1.133"  -- White norns (edit if its IP drifts; DHCP)
 local STRATA_PORT = 10111           -- norns matron OSC-in
 local strata_clock                  -- coroutine handle
 local strata_pos = 1                -- independent random-walk position
