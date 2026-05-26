@@ -58,6 +58,31 @@ local lead_active = {}
 local bass_active = {}
 local sec_active  = {}
 local vst_active  = {}
+local strata_active = {}
+
+-- strata (sampler on another norns, over OSC) -------------------------
+local STRATA_HOST = "192.168.1.133"  -- White norns (edit if its IP drifts; DHCP)
+local STRATA_PORT = 10111           -- norns matron OSC-in
+local strata_clock                  -- coroutine handle
+local strata_pos = 1                -- independent random-walk position
+local strata_dir = 1
+
+local function strata_send(path, ...)
+  if params:get("strata_on") ~= 2 then return end
+  osc.send({STRATA_HOST, STRATA_PORT}, path, {...})
+end
+
+local function strata_note_on(note, vel)
+  strata_send("/strata/noteon", note, vel)
+  table.insert(strata_active, note)
+end
+
+local function strata_note_off(note)
+  strata_send("/strata/noteoff", note)
+  for i = #strata_active, 1, -1 do
+    if strata_active[i] == note then table.remove(strata_active, i); break end
+  end
+end
 
 
 -- lead melodic drift
@@ -426,6 +451,9 @@ local function all_notes_off()
     if midi_vst then midi_vst:note_off(n.note, 0, n.ch) end
   end
   vst_active = {}
+  for _, note in ipairs(strata_active) do strata_send("/strata/noteoff", note) end
+  strata_active = {}
+  strata_send("/strata/alloff")
 end
 
 ------------------------------------------------------------------------
@@ -458,6 +486,7 @@ local function active_voice_count()
        + (#bass_active > 0 and 1 or 0)
        + (#sec_active  > 0 and 1 or 0)
        + (#vst_active  > 0 and 1 or 0)
+       + (#strata_active > 0 and 1 or 0)
 end
 
 local function get_osc_prompt()
@@ -2291,6 +2320,16 @@ local function setup_params()
   params:add_number("vst_echo_beats",    "echo delay",    1, 8, 2)
   params:add_number("vst_density", "density", 1, 3, 1)
 
+  params:add_separator("strata (osc)")
+  params:add_option("strata_on",   "strata voice", {"off","on"}, 1)
+  params:add_option("strata_mode", "mode", {"melodic","chordal","arp"}, 1)
+  params:add_option("strata_rate", "rate", LEAD_RATE_NAMES, 2)
+  params:add_option("strata_note_len", "note length", LEN_NAMES, 6)
+  params:add_number("strata_oct", "octave", 1, 7, 4)
+  params:add_number("strata_density", "chord size", 1, 4, 3)
+  params:add_number("strata_vel_min", "vel min", 1, 127, 50)
+  params:add_number("strata_vel_max", "vel max", 1, 127, 100)
+
     params:add_separator("TIMING")
   params:add_option("seq_state", "state", {"stopped","playing"}, 2)
   params:set_action("seq_state", function(v)
@@ -2319,6 +2358,70 @@ end
 ------------------------------------------------------------------------
 -- init
 ------------------------------------------------------------------------
+
+local function get_strata_note()
+  local notes = get_scale_notes(params:get("oct_low"), params:get("oct_high"))
+  if #notes == 0 then return nil end
+  strata_pos = clamp(strata_pos, 1, #notes)
+  local note = notes[strata_pos]
+  if math.random() < 0.2 then strata_dir = -strata_dir end
+  strata_pos = clamp(strata_pos + strata_dir * math.random(1, 3), 1, #notes)
+  if strata_pos >= #notes then strata_dir = -1
+  elseif strata_pos <= 1 then strata_dir = 1 end
+  return note
+end
+
+-- strata voice: melodic (1), chordal (2), or arp (3), sent to Strata over OSC
+local function strata_loop()
+  while true do
+    if playing and params:get("strata_on") == 2 then
+      sync_offset()
+      drunk_sleep()
+      local rate = LEAD_RATES[params:get("strata_rate")]
+      local len  = NOTE_LENS[params:get("strata_note_len")]
+      local off_t = math.min(len, rate * 0.95) * 60 / clock.get_tempo()
+      local mode = params:get("strata_mode")
+      local base = get_strata_note()
+      if base then
+        base = clamp(base + (params:get("strata_oct") - 4) * 12, 0, 127)
+        local vel = math.random(params:get("strata_vel_min"),
+                      math.max(params:get("strata_vel_min"), params:get("strata_vel_max")))
+        if mode == 1 then
+          strata_note_on(base, vel)
+          on_note_trigger()
+          local played = base
+          clock.run(function() clock.sleep(off_t); strata_note_off(played) end)
+          clock.sync(rate)
+        elseif mode == 2 then
+          local chord = build_chord(base, params:get("strata_density"))
+          for _, n in ipairs(chord) do strata_note_on(n, vel) end
+          on_note_trigger()
+          local played = chord
+          clock.run(function()
+            clock.sleep(off_t)
+            for _, n in ipairs(played) do strata_note_off(n) end
+          end)
+          clock.sync(rate)
+        else
+          local chord = build_chord(base, params:get("strata_density"))
+          local sub = rate / math.max(1, #chord)
+          local sub_off = math.min(off_t, sub * 0.95 * 60 / clock.get_tempo())
+          for _, n in ipairs(chord) do
+            strata_note_on(n, vel)
+            on_note_trigger()
+            local played = n
+            clock.run(function() clock.sleep(sub_off); strata_note_off(played) end)
+            clock.sync(sub)
+          end
+        end
+      else
+        clock.sync(rate)
+      end
+    else
+      clock.sleep(0.1)
+    end
+  end
+end
 
 function init()
   setup_params()
@@ -2391,6 +2494,7 @@ function init()
   bass_clock = clock.run(bass_loop)
   sec_clock  = clock.run(sec_loop)
   vst_clock  = clock.run(vst_loop)
+  strata_clock = clock.run(strata_loop)
   fx_clock   = clock.run(fx_loop)
   draw_clock = clock.run(draw_loop)
 end
