@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>causeway — devlog</title>
+  <style>
+    :root {
+      --bg:     #070a0c;
+      --panel:  #0b1116;
+      --border: #182530;
+      --dim:    #2f4654;
+      --mid:    #4d6b7d;
+      --accent: #5bb8c8;
+      --glow:   #8fdcea;
+      --text:   #d6e6ec;
+      --faint:  #7e98a4;
+      --green:  #5fa888;
+      --rust:   #b9805a;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 14px;
+      line-height: 1.7;
+      max-width: 780px;
+      margin: 0 auto;
+      padding: 0 24px 80px;
+    }
+
+    /* ── HERO ── */
+    .hero {
+      text-align: center;
+      padding: 80px 0 60px;
+      position: relative;
+    }
+
+    #hub-svg {
+      display: block;
+      margin: 0 auto 36px;
+      width: 260px;
+      height: 200px;
+    }
+
+    .dest-node { opacity: 0; animation: node-in 0.7s ease-out forwards, dest-pulse 3.5s ease-in-out infinite; }
+    @keyframes node-in { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes dest-pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
+
+    .source-node { animation: source-pulse 2.6s ease-in-out infinite; }
+    @keyframes source-pulse { 0%,100% { opacity: 0.65; r: 4; } 50% { opacity: 1; r: 5.2; } }
+
+    .flow-line {
+      stroke-dasharray: 3 6;
+      animation: flow 2.2s linear infinite;
+    }
+    @keyframes flow { to { stroke-dashoffset: -18; } }
+
+    h1.title {
+      font-size: 42px;
+      letter-spacing: 0.18em;
+      color: var(--accent);
+      font-weight: normal;
+      line-height: 1;
+    }
+    .subtitle {
+      color: var(--faint);
+      font-size: 13px;
+      letter-spacing: 0.2em;
+      margin-top: 10px;
+      text-transform: lowercase;
+    }
+    .meta {
+      color: var(--dim);
+      font-size: 11px;
+      letter-spacing: 0.15em;
+      margin-top: 8px;
+    }
+
+    /* ── SECTIONS ── */
+    .section { margin-top: 64px; }
+    .section-label {
+      font-size: 10px;
+      letter-spacing: 0.4em;
+      text-transform: uppercase;
+      color: var(--accent);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+      margin-bottom: 28px;
+    }
+
+    .concept p { color: var(--text); margin-bottom: 18px; max-width: 640px; }
+    .concept p:last-child { margin-bottom: 0; }
+    em { color: var(--accent); font-style: normal; }
+
+    /* ── VOICE / FEATURE CARDS ── */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 520px) { .cards-grid { grid-template-columns: 1fr; } }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      padding: 18px 20px;
+      position: relative;
+    }
+    .card .tag {
+      position: absolute;
+      top: 12px;
+      right: 14px;
+      font-size: 9px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--mid);
+    }
+    .card .tag.net { color: var(--rust); }
+    .card .tag.audio { color: var(--green); }
+    .card-name {
+      color: var(--accent);
+      font-size: 15px;
+      margin-bottom: 10px;
+      letter-spacing: 0.05em;
+    }
+    .card-desc { color: var(--faint); font-size: 12px; line-height: 1.6; }
+    .card-desc .out { color: var(--text); display: block; margin-top: 6px; font-size: 12px; }
+
+    /* ── THEMES GRID ── */
+    .theme-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 10px;
+    }
+    .theme-chip {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      padding: 10px 12px;
+    }
+    .theme-chip .tn {
+      color: var(--accent);
+      font-size: 12px;
+      letter-spacing: 0.1em;
+    }
+    .theme-chip .ti { color: var(--dim); font-size: 9px; float: right; }
+    .theme-chip .td { color: var(--faint); font-size: 10px; line-height: 1.5; margin-top: 5px; clear: both; }
+
+    /* ── TABLES ── */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th {
+      text-align: left;
+      color: var(--mid);
+      font-size: 10px;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      padding: 0 12px 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    td { padding: 9px 12px 9px 0; border-bottom: 1px solid var(--border); vertical-align: top; }
+    td:first-child { color: var(--accent); white-space: nowrap; width: 150px; }
+    td.note { color: var(--faint); font-size: 11px; }
+
+    /* ── DEVLOG ── */
+    .log-entry { margin-bottom: 40px; }
+    .log-date {
+      color: var(--accent);
+      font-size: 11px;
+      letter-spacing: 0.3em;
+      border-left: 2px solid var(--accent);
+      padding-left: 12px;
+      margin-bottom: 14px;
+    }
+    .log-body { padding-left: 14px; border-left: 1px solid var(--border); }
+    .log-body p { color: var(--faint); margin-bottom: 12px; font-size: 13px; line-height: 1.7; }
+    .log-body p span.hl { color: var(--text); }
+    .log-body p:last-child { margin-bottom: 0; }
+    .log-body code { color: var(--green); font-size: 12px; }
+
+    /* ── FOOTER ── */
+    .footer {
+      margin-top: 80px;
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      color: var(--dim);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-align: center;
+    }
+
+    /* ── NAV ── */
+    .nav {
+      position: sticky;
+      top: 0;
+      background: rgba(7,10,12,0.95);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 0;
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
+      z-index: 10;
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+    .nav a { color: var(--dim); text-decoration: none; transition: color 0.2s; }
+    .nav a:hover { color: var(--accent); }
+  </style>
+</head>
+<body>
+
+  <!-- HERO -->
+  <section class="hero">
+    <svg id="hub-svg" viewBox="0 0 260 200" xmlns="http://www.w3.org/2000/svg">
+      <circle class="source-node" cx="40" cy="100" r="4.5" fill="#5bb8c8"/>
+    </svg>
+    <h1 class="title">causeway</h1>
+    <p class="subtitle">slow generative music for many synths</p>
+    <p class="meta">norns · polysub · midi×4 · osc · 2026</p>
+  </section>
+
+  <!-- NAV -->
+  <nav class="nav">
+    <a href="#concept">concept</a>
+    <a href="#voices">voices</a>
+    <a href="#routing">routing</a>
+    <a href="#timing">timing</a>
+    <a href="#wowflutter">wow/flutter</a>
+    <a href="#themes">themes</a>
+    <a href="#controls">controls</a>
+    <a href="#devlog">devlog</a>
+  </nav>
+
+  <!-- CONCEPT -->
+  <section class="section" id="concept">
+    <p class="section-label">concept</p>
+    <div class="concept">
+      <p>
+        <em>causeway</em> is a generative music machine for norns whose whole point is to
+        play <em>everywhere at once</em>. One slow, drifting harmonic stream is generated on the
+        norns and fanned out simultaneously to the onboard PolySub engine, up to three external
+        MIDI synths, a fourth MIDI port aimed at a DAW over the network, and a fifth voice sent
+        as OSC to a second norns running the Strata sampler. The norns stops being a single
+        instrument and becomes the conductor of whatever's wired to it.
+      </p>
+      <p>
+        The music is meant to move <em>like water finding its way downhill</em> — unhurried,
+        gravitational, with memory. Nothing is sequenced note-for-note. Lines drift through a
+        scale with directional momentum, occasionally leap, occasionally snap back to root, and
+        the timing is deliberately loosened so it never sounds quantized. The name fits: a long,
+        low, deliberate path across water.
+      </p>
+      <p>
+        causeway is a <em>hub, not a soloist</em>. The generative model is intentionally modest —
+        scale, weighted drift, root gravity, a shared <code>lead_last</code> the harmony voices
+        hang off of. The interesting part isn't the cleverness of any one line; it's that a single
+        calm stream can light up the onboard pad, a rack of hardware, a DAW track, a sampler on a
+        second norns, and a screen full of reactive visuals all at once.
+      </p>
+    </div>
+  </section>
+
+  <!-- VOICES -->
+  <section class="section" id="voices">
+    <p class="section-label">five voices, one stream</p>
+    <div class="cards-grid">
+
+      <div class="card">
+        <span class="tag audio">polysub</span>
+        <p class="card-name">pad</p>
+        <p class="card-desc">
+          The only voice that sounds on the norns itself — slow chord clusters through PolySub.
+          <span class="out">Picks a root from the middle third of the scale and stacks notes upward by twos with jitter; density (1–3) sets the stack height. It's the harmonic anchor.</span>
+        </p>
+      </div>
+
+      <div class="card">
+        <span class="tag net">midi</span>
+        <p class="card-name">lead</p>
+        <p class="card-desc">
+          The melodic core. Most steps walk one scale degree in the current direction.
+          <span class="out">~12% of the time it leaps two or three degrees, otherwise it reverses; flips direction near the range edges and never repeats a note twice. The pitch is built into a chord before sending.</span>
+        </p>
+      </div>
+
+      <div class="card">
+        <span class="tag net">midi</span>
+        <p class="card-name">bass</p>
+        <p class="card-desc">
+          A weighted walking line, grounded by gravity.
+          <span class="out">9% rest ("silence is part of the groove"), 28% root-gravity snap to the nearest root in range, otherwise a momentum walk with a 13% chance of dropping an octave. Density is a per-step fire probability.</span>
+        </p>
+      </div>
+
+      <div class="card">
+        <span class="tag net">midi</span>
+        <p class="card-name">sec lead</p>
+        <p class="card-desc">
+          A reactive voice with three modes that hang off the lead.
+          <span class="out"><em>harmony</em> offsets the lead's last note by a fixed scale-step count · <em>echo</em> replays it after a delay in beats · <em>counter</em> drifts in the opposite direction. Voices at 80% of lead velocity to sit underneath.</span>
+        </p>
+      </div>
+
+      <div class="card">
+        <span class="tag net">midi · network</span>
+        <p class="card-name">VST</p>
+        <p class="card-desc">
+          Structurally identical to sec lead — same three modes — but on its own port and channel.
+          <span class="out">Intended for a software synth in a DAW, reached through rtpMIDI as a virtual vport on the norns side.</span>
+        </p>
+      </div>
+
+      <div class="card">
+        <span class="tag net">osc</span>
+        <p class="card-name">strata <span style="color:var(--rust)">↗</span></p>
+        <p class="card-desc">
+          A sixth voice sent as raw OSC to a second norns running the Strata sampler.
+          <span class="out">Its own random-walk generator and three modes: <em>melodic</em> (single notes), <em>chordal</em> (a chord stack), <em>arp</em> (the chord rolled out via nested <code>clock.sync</code>). Host IP is a hardcoded constant near the top of the file. The most recent body of work, merged 2026-05-26.</span>
+        </p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ROUTING -->
+  <section class="section" id="routing">
+    <p class="section-label">playing everywhere at once</p>
+    <div class="concept">
+      <p>
+        The defining structural choice is that there is <em>no single output</em>. Each voice runs
+        as its own independent <code>clock.run</code> loop, syncing to the norns clock at its own
+        bar-rate; they share a key, scale, and octave window but make their own decisions.
+      </p>
+    </div>
+    <table>
+      <thead><tr><th>destination</th><th>transport</th><th>note</th></tr></thead>
+      <tbody>
+        <tr><td>PolySub pad</td><td>engine.start / stop</td><td class="note">raw frequency, on the norns audio out</td></tr>
+        <tr><td>lead · bass · sec</td><td>midi:note_on/off</td><td class="note">each its own vport + channel + active-notes table</td></tr>
+        <tr><td>VST</td><td>midi (rtpMIDI)</td><td class="note">virtual vport → a DAW over the network</td></tr>
+        <tr><td>Strata</td><td>OSC</td><td class="note">/strata/noteon · noteoff · alloff to a 2nd norns</td></tr>
+      </tbody>
+    </table>
+    <div class="concept" style="margin-top:24px">
+      <p>
+        Every destination keeps its own active-notes table so note-offs always land, and
+        <code>all_notes_off</code> sweeps engine, all four MIDI ports, and Strata whenever playback
+        stops or the script cleans up — so nothing hangs. Ableton Link transport is honored: a
+        Link-connected DAW can start/stop causeway, and on start it waits for the next 4-bar
+        boundary so it falls into the grid rather than jumping in mid-measure.
+      </p>
+    </div>
+  </section>
+
+  <!-- TIMING -->
+  <section class="section" id="timing">
+    <p class="section-label">timing — drunk &amp; syncopated</p>
+    <div class="concept">
+      <p>
+        Two layers loosen the grid, applied before the lead, bass, and Strata steps — never the
+        pad, which stays on its slow grid as the harmonic anchor.
+      </p>
+    </div>
+    <table>
+      <thead><tr><th>layer</th><th>behavior</th></tr></thead>
+      <tbody>
+        <tr><td>drunk</td><td class="note">scales a <code>clock.sleep</code> by the drunk amount, adding up to ~200ms of random delay so onsets scatter slightly behind the beat</td></tr>
+        <tr><td>syncopation</td><td class="note">soft / medium / hard — probabilistically shifts a note onto the off-beat (a half-beat shift mostly, hard occasionally a full beat); probabilities climb 25% / 50% / 75%</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- WOW / FLUTTER -->
+  <section class="section" id="wowflutter">
+    <p class="section-label">wow / flutter</p>
+    <div class="concept">
+      <p>
+        A tape-style pitch-instability layer runs in <code>fx_loop</code> at ~60fps and applies
+        <em>only to the PolySub pad</em> — the MIDI voices are untouched. <em>wow</em> is a slow,
+        mean-reverting Brownian wander; <em>flutter</em> is faster sample-and-hold variation. The
+        two combine into a semitone offset re-applied to every sounding pad voice by calling
+        <code>engine.start</code> again — updating pitch through PolySub's built-in lag without
+        retriggering the amplitude envelope. Flutter also lightly amplitude-modulates the pad.
+      </p>
+      <p>
+        It's the one effect with its own front-panel UI: two small <em>W / F</em> bars at the
+        bottom of the screen, brightening with numeric percentages while K3 is held.
+      </p>
+    </div>
+  </section>
+
+  <!-- THEMES -->
+  <section class="section" id="themes">
+    <p class="section-label">seventeen audioreactive themes</p>
+    <div class="concept">
+      <p>
+        The norns screen here is a <em>visualizer, not a control surface</em>. Seventeen themes,
+        cycled live by holding <em>K1 and turning E1</em>, redraw on their own 1/20s metro
+        independent of the musical clock. Every theme reads two shared signals: <code>audio_level</code>
+        (an asymmetric envelope follow of the pad output — fast attack, slow release) scales
+        brightness and motion, while <code>on_note_trigger</code> — fired by every voice on every
+        note — dispatches to the current theme's trigger hook. The screen is always moving because
+        the music is.
+      </p>
+    </div>
+    <div class="theme-grid" id="theme-grid"></div>
+  </section>
+
+  <!-- CONTROLS -->
+  <section class="section" id="controls">
+    <p class="section-label">controls</p>
+    <table>
+      <thead><tr><th>input</th><th>action</th><th>note</th></tr></thead>
+      <tbody>
+        <tr><td>K1 + E1</td><td>cycle visual theme</td><td class="note">theme name + index shown top-left while K1 is held</td></tr>
+        <tr><td>K2 + E2</td><td>root note</td><td class="note">shown top-left on the main screen</td></tr>
+        <tr><td>K2 + E3</td><td>scale</td><td class="note">any musicutil scale; default pentatonic minor</td></tr>
+        <tr><td>K3 + E2</td><td>wow depth</td><td class="note">brightens the W bar</td></tr>
+        <tr><td>K3 + E3</td><td>flutter depth</td><td class="note">brightens the F bar</td></tr>
+        <tr><td>K2 + K3</td><td>play / stop</td><td class="note">* indicator bottom-right when running</td></tr>
+      </tbody>
+    </table>
+    <div class="concept" style="margin-top:20px">
+      <p>
+        Everything else — per-voice devices, channels, octaves, rates, note lengths, velocities,
+        densities, modes, the Strata voice, drunk and syncopation, and the optional DAYDREAM feed —
+        is set in params before you start.
+      </p>
+    </div>
+  </section>
+
+  <!-- DAYDREAM -->
+  <section class="section" id="daydream">
+    <p class="section-label">daydream — the osc sidecar</p>
+    <div class="concept">
+      <p>
+        A second, optional OSC stream (the <em>DAYDREAM</em> params group, off by default) emits to
+        a separate host/port from <code>fx_loop</code> at ~15Hz, aimed at driving an external
+        generative-video / diffusion "scope." It sends continuous control values derived from the
+        music — a noise scale from wow, an attention-bias term that falls as audio rises, a context
+        scale from the active-voice count — plus play/pause and cache-reset events, and, keyed off
+        the current root, a <em>text prompt</em> from a built-in table of twelve atmospheric scene
+        descriptions ("iron bridge in fog, rust and rain"; "winter morning, bare trees, frost").
+        It's a one-way feed; causeway doesn't read anything back.
+      </p>
+    </div>
+  </section>
+
+  <!-- DEVLOG -->
+  <section class="section" id="devlog">
+    <p class="section-label">devlog</p>
+
+    <div class="log-entry">
+      <p class="log-date">2026-03-27 — v1.0</p>
+      <div class="log-body">
+        <p>
+          <span class="hl">Initial commit.</span> causeway lands as a slow generative engine —
+          pad on PolySub plus lead / bass / secondary MIDI voices, the drift-and-gravity note
+          model, drunk timing, wow/flutter on the pad, and a small set of audioreactive screen
+          themes. The header words the intent plainly: <code>slow generative music for multiple synths</code>.
+        </p>
+      </div>
+    </div>
+
+    <div class="log-entry">
+      <p class="log-date">2026-05-24 — the device build, synced back</p>
+      <div class="log-body">
+        <p>
+          A long gap, then the version that had grown on the device was synced into the repo —
+          <span class="hl">a much larger build</span> than v1.0. This is where the screen grows
+          from a handful of themes to <span class="hl">seventeen</span>, the timing gains
+          syncopation alongside drunk, and the VST voice rounds out the MIDI fan-out.
+        </p>
+        <p>
+          The same day, work began on the <code>strata-osc-voice</code> branch: an OSC config and
+          send helpers, then an independent generative voice (melodic / chordal / arp), then the
+          PARAMS group and lifecycle wiring (voice count, all-off, clock), then a gate so the voice
+          is inert when switched off.
+        </p>
+      </div>
+    </div>
+
+    <div class="log-entry">
+      <p class="log-date">2026-05-26 — the Strata bridge merges</p>
+      <div class="log-body">
+        <p>
+          <span class="hl">Causeway → Strata OSC bridge merged to main.</span> causeway can now
+          conduct a second norns: it speaks <code>/strata/noteon</code>, <code>/strata/noteoff</code>,
+          and <code>/strata/alloff</code> to Strata's matron OSC port. A small fix that day pointed
+          the OSC host at White norns's then-current IP — a reminder that the destination address
+          is a hardcoded constant that drifts with DHCP.
+        </p>
+        <p>
+          With the bridge in, causeway hits its current shape: one calm stream lighting up the
+          onboard pad, a rack of hardware, a DAW, a sampler on another norns, and seventeen
+          reactive visuals — a piece nobody is playing by hand.
+        </p>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="footer">
+    <p>causeway · norns · 2026 · personal devlog</p>
+  </footer>
+
+  <script>
+    // ── HERO HUB: source fanning out to many destinations ────────────────────
+    (function() {
+      const svg = document.getElementById('hub-svg');
+      const NS = 'http://www.w3.org/2000/svg';
+      const sx = 40, sy = 100;
+      const dests = [
+        { x: 220, y: 28,  label: 'pad'   },
+        { x: 238, y: 70,  label: 'lead'  },
+        { x: 244, y: 110, label: 'bass'  },
+        { x: 238, y: 150, label: 'sec'   },
+        { x: 210, y: 184, label: 'strata'},
+      ];
+      dests.forEach((d, i) => {
+        // flow line behind nodes
+        const ctrlX = (sx + d.x) / 2 + 10;
+        const ctrlY = (sy + d.y) / 2;
+        const path = document.createElementNS(NS, 'path');
+        path.setAttribute('d', `M ${sx} ${sy} Q ${ctrlX} ${ctrlY} ${d.x} ${d.y}`);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('stroke', '#2f4654');
+        path.setAttribute('stroke-width', '1');
+        path.classList.add('flow-line');
+        path.style.animationDelay = `${i * 0.3}s`;
+        svg.appendChild(path);
+      });
+      dests.forEach((d, i) => {
+        const c = document.createElementNS(NS, 'circle');
+        c.setAttribute('cx', d.x);
+        c.setAttribute('cy', d.y);
+        c.setAttribute('r', 3.4);
+        c.setAttribute('fill', '#5bb8c8');
+        c.classList.add('dest-node');
+        c.style.animationDelay = `${0.4 + i * 0.15}s, ${i * 0.5}s`;
+        svg.appendChild(c);
+      });
+    })();
+
+    // ── THEME GRID ───────────────────────────────────────────────────────────
+    (function() {
+      const grid = document.getElementById('theme-grid');
+      // names verified from causeway.lua theme_names array (17)
+      // descriptions verified from each theme's source comment + draw fn
+      const themes = [
+        ['pulse',  'concentric rings expanding from center; a note spawns a new ring'],
+        ['drift',  'slow horizontal light bands crossing the screen'],
+        ['field',  'vertical FFT-style noise columns; height scales with level'],
+        ['hex',    'hex node grid; random nodes light + decay on note triggers'],
+        ['stars',  'warp-speed starfield with streak trails; notes add stars'],
+        ['wave',   'three interfering sine waves + a note-triggered shock'],
+        ['rain',   'streaking drops with wind drift and splashes'],
+        ['spiral', 'galaxy arms drawn as line segments; a note flashes an arm'],
+        ['liss',   'phase-morphing lissajous oscilloscope curves'],
+        ['tunnel', 'zooming concentric rectangles; a note warps the tunnel'],
+        ['bounce', 'physics balls with trails; audio boosts velocity'],
+        ['grid',   'ripple waves radiating across a dot grid'],
+        ['flow',   'curl-noise vector-field particles'],
+        ['morph',  'a polygon morphing between shapes'],
+        ['shatter','crack lines that spawn on notes and slowly heal'],
+        ['code',   'matrix-style falling character columns'],
+        ['orbit',  'planets orbiting a star; audio perturbs the orbits'],
+      ];
+      themes.forEach((t, i) => {
+        const chip = document.createElement('div');
+        chip.className = 'theme-chip';
+        const idx = String(i + 1).padStart(2, '0');
+        chip.innerHTML =
+          `<span class="tn">${t[0]}</span><span class="ti">${idx}/17</span>` +
+          `<span class="td">${t[1]}</span>`;
+        grid.appendChild(chip);
+      });
+    })();
+
+    // ── KEYBOARD / GAMEPAD NAV ───────────────────────────────────────────────
+    (function() {
+      const SECTIONS = ['concept','voices','routing','timing','wowflutter','themes','controls','devlog'];
+      let currentSection = -1;
+
+      const hud = document.createElement('div');
+      Object.assign(hud.style, {
+        position: 'fixed', bottom: '18px', right: '20px',
+        fontSize: '10px', letterSpacing: '0.2em', color: 'var(--dim)',
+        fontFamily: 'Courier New, monospace', opacity: '0',
+        transition: 'opacity 0.4s', pointerEvents: 'none', zIndex: '100',
+        textAlign: 'right', lineHeight: '1.8', whiteSpace: 'pre',
+      });
+      document.body.appendChild(hud);
+      let hudTimer;
+      function showHud(t) { hud.textContent = t; hud.style.opacity = '1'; clearTimeout(hudTimer); hudTimer = setTimeout(() => hud.style.opacity = '0', 2000); }
+      function jumpTo(id) { const el = document.getElementById(id); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); showHud('→ ' + id); } }
+      function sectionNav(dir) {
+        currentSection = Math.max(-1, Math.min(SECTIONS.length - 1, currentSection + dir));
+        if (currentSection < 0) { window.scrollTo({ top: 0, behavior: 'smooth' }); showHud('→ top'); }
+        else jumpTo(SECTIONS[currentSection]);
+      }
+      const STEP = 120;
+      document.addEventListener('keydown', function(e) {
+        if (e.key >= '1' && e.key <= '8' && !e.ctrlKey && !e.metaKey) { currentSection = +e.key - 1; jumpTo(SECTIONS[currentSection]); return; }
+        if (e.key === '0') { currentSection = -1; window.scrollTo({ top: 0, behavior: 'smooth' }); showHud('→ top'); return; }
+        switch (e.key) {
+          case 'ArrowDown': case 'j': window.scrollBy({ top:  STEP, behavior: 'smooth' }); break;
+          case 'ArrowUp':   case 'k': window.scrollBy({ top: -STEP, behavior: 'smooth' }); break;
+          case 'ArrowRight':case 'l': e.preventDefault(); sectionNav(+1); break;
+          case 'ArrowLeft': case 'h': e.preventDefault(); sectionNav(-1); break;
+          case 'g': currentSection = -1; window.scrollTo({ top: 0, behavior: 'smooth' }); showHud('→ top'); break;
+          case 'G': currentSection = SECTIONS.length - 1; window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }); showHud('→ end'); break;
+          case '?': showHud('0 top · 1–8 sections\nh/l ← → sections\nj/k ↑↓ scroll'); break;
+        }
+      });
+
+      let gpIndex = null, gpLoop = null;
+      const COOLDOWN = 250;
+      window.addEventListener('gamepadconnected', e => { gpIndex = e.gamepad.index; showHud('controller connected'); if (!gpLoop) startGp(); });
+      window.addEventListener('gamepaddisconnected', e => { if (e.gamepad.index === gpIndex) { gpIndex = null; showHud('controller disconnected'); } });
+      function startGp() {
+        const last = {};
+        (function tick() {
+          gpLoop = requestAnimationFrame(tick);
+          if (gpIndex === null) return;
+          const gp = navigator.getGamepads()[gpIndex];
+          if (!gp) return;
+          const now = Date.now();
+          const press = (b, key, cd) => { if (gp.buttons[b]?.pressed && now - (last[key] || 0) > (cd || COOLDOWN)) { last[key] = now; return true; } return false; };
+          if (press(15, 'r')) sectionNav(+1);
+          if (press(14, 'l')) sectionNav(-1);
+          if (press(13, 'd', 80)) window.scrollBy({ top:  STEP });
+          if (press(12, 'u', 80)) window.scrollBy({ top: -STEP });
+          if (press(0, 'a')) sectionNav(+1);
+          if (press(1, 'b')) sectionNav(-1);
+          const y = gp.axes[1] || 0;
+          if (Math.abs(y) > 0.2) window.scrollBy({ top: y * 14 });
+        })();
+      }
+      setTimeout(() => showHud('press ? for keys'), 1800);
+    })();
+  </script>
+</body>
+</html>
