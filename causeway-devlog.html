@@ -580,15 +580,120 @@
         ['code',   'matrix-style falling character columns'],
         ['orbit',  'planets orbiting a star; audio perturbs the orbits'],
       ];
+
+      const W = 168, H = 64, CX = W / 2, CY = H / 2;
+      const C = '143,220,234'; // glow rgb
+      const col = a => 'rgba(' + C + ',' + a + ')';
+      const ring = (g, x, y, r, a) => { g.strokeStyle = col(a); g.beginPath(); g.arc(x, y, r, 0, 7); g.stroke(); };
+
+      // per-theme frame renderers: (g, t, s) — s is persistent state
+      const R = {
+        pulse(g, t, s) {
+          if (!s.r) s.r = [];
+          if (!s.l || t - s.l > 0.7) { s.l = t; s.r.push(t); }
+          s.r = s.r.filter(x => t - x < 2.4);
+          for (const b of s.r) { const age = (t - b) / 2.4; ring(g, CX, CY, age * 34, (1 - age) * 0.9); }
+        },
+        drift(g, t) {
+          for (let i = 0; i < 5; i++) { const y = ((t * 9 + i * 15) % (H + 12)); g.fillStyle = col(0.2 + 0.25 * Math.sin(t * 1.4 + i)); g.fillRect(0, y, W, 2); }
+        },
+        field(g, t) {
+          const n = 30, bw = W / n;
+          for (let i = 0; i < n; i++) { const h = (0.5 + 0.5 * Math.sin(t * 2 + i * 0.6) * Math.sin(t * 0.7 + i)) * H * 0.85; g.fillStyle = col(0.35 + 0.45 * h / (H * 0.85)); g.fillRect(i * bw, H - h, bw - 1, h); }
+        },
+        hex(g, t, s) {
+          if (!s.n) { s.n = []; for (let r = 0; r < 4; r++) for (let c = 0; c < 9; c++) s.n.push({ x: c * 18 + (r % 2 ? 9 : 0) + 6, y: r * 16 + 8, b: 0 }); }
+          if (Math.random() < 0.18) s.n[Math.random() * s.n.length | 0].b = 1;
+          for (const nd of s.n) { nd.b *= 0.93; g.fillStyle = col(0.12 + nd.b * 0.85); g.beginPath(); g.arc(nd.x, nd.y, nd.b > 0.15 ? 2.2 : 1, 0, 7); g.fill(); }
+        },
+        stars(g, t, s) {
+          const mk = () => ({ a: Math.random() * 7, r: Math.random() * 4, sp: 0.5 + Math.random() * 1.6 });
+          if (!s.st) { s.st = []; for (let i = 0; i < 44; i++) s.st.push(mk()); }
+          for (const st of s.st) { const x0 = CX + Math.cos(st.a) * st.r, y0 = CY + Math.sin(st.a) * st.r * 0.85; st.r += st.sp; const x1 = CX + Math.cos(st.a) * st.r, y1 = CY + Math.sin(st.a) * st.r * 0.85; g.strokeStyle = col(Math.min(1, st.r / 32)); g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); if (st.r > 40) Object.assign(st, mk()); }
+        },
+        wave(g, t) {
+          for (let k = 0; k < 3; k++) { g.strokeStyle = col(0.3 + k * 0.2); g.beginPath(); for (let x = 0; x <= W; x += 2) { const y = CY + Math.sin(x * 0.06 + t * (1.5 + k) + k * 2) * (7 + k * 3); x ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke(); }
+        },
+        rain(g, t, s) {
+          if (!s.d) { s.d = []; for (let i = 0; i < 24; i++) s.d.push({ x: Math.random() * W, y: Math.random() * H, sp: 1 + Math.random() * 2 }); }
+          for (const d of s.d) { d.y += d.sp * 2.2; d.x += 0.35; if (d.y > H) { d.y = -5; d.x = Math.random() * W; } g.strokeStyle = col(0.6); g.beginPath(); g.moveTo(d.x, d.y); g.lineTo(d.x - 1.2, d.y - 5); g.stroke(); }
+        },
+        spiral(g, t) {
+          for (let a = 0; a < 3; a++) { g.strokeStyle = col(0.5); g.beginPath(); for (let i = 0; i < 32; i++) { const ang = i * 0.38 + t * 0.6 + a * 2.1; const r = i * 1.0; const x = CX + Math.cos(ang) * r, y = CY + Math.sin(ang) * r * 0.55; i ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke(); }
+        },
+        liss(g, t) {
+          g.strokeStyle = col(0.75); g.beginPath(); const ph = t * 0.5;
+          for (let i = 0; i <= 140; i++) { const u = i / 140 * 7; const x = CX + Math.sin(u * 3 + ph) * 56, y = CY + Math.sin(u * 2) * 26; i ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke();
+        },
+        tunnel(g, t) {
+          for (let i = 0; i < 7; i++) { const z = ((t * 0.45 + i / 7) % 1); const w = z * W, h = z * H; g.strokeStyle = col((1 - z) * 0.7); g.strokeRect(CX - w / 2, CY - h / 2, w, h); }
+        },
+        bounce(g, t, s) {
+          if (!s.b) { s.b = []; for (let i = 0; i < 3; i++) s.b.push({ x: Math.random() * W, y: Math.random() * H, vx: (Math.random() - .5) * 3.5, vy: (Math.random() - .5) * 3.5, tr: [] }); }
+          for (const b of s.b) { b.x += b.vx; b.y += b.vy; if (b.x < 3 || b.x > W - 3) b.vx *= -1; if (b.y < 3 || b.y > H - 3) b.vy *= -1; b.tr.push([b.x, b.y]); if (b.tr.length > 10) b.tr.shift(); for (let i = 0; i < b.tr.length; i++) { g.fillStyle = col(i / b.tr.length * 0.5); g.beginPath(); g.arc(b.tr[i][0], b.tr[i][1], 1, 0, 7); g.fill(); } g.fillStyle = col(0.95); g.beginPath(); g.arc(b.x, b.y, 2.6, 0, 7); g.fill(); }
+        },
+        grid(g, t) {
+          for (let y = 6; y < H; y += 8) for (let x = 6; x < W; x += 9) { const d = Math.hypot(x - CX, y - CY); g.fillStyle = col(0.12 + 0.5 * (0.5 + 0.5 * Math.sin(d * 0.28 - t * 3))); g.fillRect(x, y, 1.6, 1.6); }
+        },
+        flow(g, t, s) {
+          if (!s.p) { s.p = []; for (let i = 0; i < 46; i++) s.p.push({ x: Math.random() * W, y: Math.random() * H }); }
+          for (const p of s.p) { const ang = Math.sin(p.x * 0.045 + t) * 2 + Math.cos(p.y * 0.05 - t * 0.5) * 2; p.x += Math.cos(ang) * 1.1; p.y += Math.sin(ang) * 1.1; if (p.x < 0) p.x += W; if (p.x > W) p.x -= W; if (p.y < 0) p.y += H; if (p.y > H) p.y -= H; g.fillStyle = col(0.6); g.fillRect(p.x, p.y, 1.2, 1.2); }
+        },
+        morph(g, t) {
+          const sides = Math.round(3 + (Math.sin(t * 0.3) * 0.5 + 0.5) * 4);
+          g.strokeStyle = col(0.7); g.beginPath();
+          for (let i = 0; i <= sides; i++) { const ang = i / sides * 7 + t * 0.5; const x = CX + Math.cos(ang) * 22, y = CY + Math.sin(ang) * 17; i ? g.lineTo(x, y) : g.moveTo(x, y); } g.closePath(); g.stroke();
+        },
+        shatter(g, t, s) {
+          if (!s.c) s.c = [];
+          if (!s.l || t - s.l > 0.95) { s.l = t; const ox = 20 + Math.random() * (W - 40), oy = 8 + Math.random() * (H - 16); const cracks = []; const n = 4 + (Math.random() * 4 | 0); for (let i = 0; i < n; i++) { let ang = Math.random() * 7, x = ox, y = oy; const pts = [[x, y]]; for (let k = 0; k < 3; k++) { ang += (Math.random() - .5) * 0.7; x += Math.cos(ang) * 9; y += Math.sin(ang) * 6; pts.push([x, y]); } cracks.push(pts); } s.c.push({ b: t, cracks }); }
+          s.c = s.c.filter(c => t - c.b < 2.5);
+          for (const c of s.c) { g.strokeStyle = col((1 - (t - c.b) / 2.5) * 0.8); for (const pts of c.cracks) { g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]); g.stroke(); } }
+        },
+        code(g, t, s) {
+          const CH = '|/\\-_:.#*+=~';
+          if (!s.cols) { s.cols = []; for (let i = 0; i < 27; i++) s.cols.push({ x: i * 6 + 2, y: Math.random() * -60, sp: 0.5 + Math.random() * 1.5, len: 4 + (Math.random() * 8 | 0) }); }
+          g.font = '7px monospace';
+          for (const c of s.cols) { c.y += c.sp * 2.2; if (c.y > H + c.len * 6) { c.y = -c.len * 6; c.sp = 0.5 + Math.random() * 1.5; } for (let j = 0; j < c.len; j++) { const ty = c.y - j * 6; if (ty >= 0 && ty <= H) { g.fillStyle = col(j === 0 ? 1 : (1 - j / c.len) * 0.55); g.fillText(CH[Math.random() * CH.length | 0], c.x, ty); } } }
+        },
+        orbit(g, t, s) {
+          if (!s.b) { s.b = []; const radii = [9, 15, 22, 29, 37]; for (let i = 0; i < radii.length; i++) s.b.push({ r: radii[i], a: Math.random() * 7, sp: (0.4 + Math.random() * 0.3) * (i % 2 ? -1 : 1), tr: [] }); }
+          g.fillStyle = col(0.9); g.beginPath(); g.arc(CX, CY, 2.5, 0, 7); g.fill();
+          for (const b of s.b) { g.strokeStyle = col(0.12); g.beginPath(); for (let j = 0; j <= 28; j++) { const a = j / 28 * 7; const x = CX + Math.cos(a) * b.r, y = CY + Math.sin(a) * b.r * 0.55; j ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke(); b.a += b.sp * 0.05; const x = CX + Math.cos(b.a) * b.r, y = CY + Math.sin(b.a) * b.r * 0.55; b.tr.push([x, y]); if (b.tr.length > 14) b.tr.shift(); for (let i = 0; i < b.tr.length; i++) { g.fillStyle = col(i / b.tr.length * 0.4); g.fillRect(b.tr[i][0], b.tr[i][1], 1, 1); } g.fillStyle = col(0.9); g.beginPath(); g.arc(x, y, 1.8, 0, 7); g.fill(); }
+        },
+      };
+
+      const previews = [];
       themes.forEach((t, i) => {
         const chip = document.createElement('div');
         chip.className = 'theme-chip';
         const idx = String(i + 1).padStart(2, '0');
-        chip.innerHTML =
-          `<span class="tn">${t[0]}</span><span class="ti">${idx}/17</span>` +
-          `<span class="td">${t[1]}</span>`;
+        chip.innerHTML = `<span class="tn">${t[0]}</span><span class="ti">${idx}/17</span>`;
+        const cv = document.createElement('canvas');
+        cv.className = 'theme-cv'; cv.width = W; cv.height = H;
+        chip.appendChild(cv);
+        const td = document.createElement('span');
+        td.className = 'td'; td.textContent = t[1];
+        chip.appendChild(td);
         grid.appendChild(chip);
+        previews.push({ fn: R[t[0]], ctx: cv.getContext('2d'), s: {} });
       });
+
+      // single throttled render loop driving all 17 previews (~30fps)
+      let running = true;
+      if ('IntersectionObserver' in window) {
+        const io = new IntersectionObserver(es => es.forEach(e => running = e.isIntersecting), { threshold: 0 });
+        io.observe(grid);
+      }
+      let last = 0;
+      function frame(now) {
+        requestAnimationFrame(frame);
+        if (!running || now - last < 33) return;
+        last = now;
+        const t = now / 1000;
+        for (const p of previews) { p.ctx.clearRect(0, 0, W, H); p.ctx.lineWidth = 1; if (p.fn) p.fn(p.ctx, t, p.s); }
+      }
+      requestAnimationFrame(frame);
     })();
 
     // ── KEYBOARD / GAMEPAD NAV ───────────────────────────────────────────────
