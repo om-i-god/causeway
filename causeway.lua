@@ -133,7 +133,7 @@ local last_scale_osc   = -1
 -- visuals
 local time_val    = 0
 local theme_index = 1
-local theme_names = {"pulse","drift","field","hex","stars","wave","rain","spiral","liss","tunnel","bounce","grid","flow","morph","shatter","code","orbit"}
+local theme_names = {"pulse","drift","field","hex","stars","wave","rain","spiral","liss","tunnel","bounce","grid","flow","morph","shatter","code","orbit","terrain","lattice","kaleido"}
 
 local rings      = {}
 local bands      = {}
@@ -164,6 +164,12 @@ local grid_wave2_t    = 0
 local grid_src2_x     = 20
 local grid_src2_y     = 10
 local morph_vphase    = {}
+
+-- new themes: declared as globals (not locals) because the main chunk is already
+-- at Lua's 200-local limit. Each namespace table holds the theme's state + funcs.
+terrain = { rows = {}, N = 10, S = 12 }
+lattice = { verts = {}, edges = {}, rx = 0, ry = 0, kick = 0, flash = 0 }
+kaleido = { parts = {}, shards = {} }
 
 local LISS_RATIOS = {{1,2},{2,3},{3,4},{3,5},{4,5},{1,3},{2,5}}
 
@@ -1814,6 +1820,237 @@ local function draw_orbit()
 end
 
 ------------------------------------------------------------------------
+-- terrain theme
+------------------------------------------------------------------------
+
+-- new themes attach their functions as table fields (not top-level locals) to
+-- stay under Lua's 200-local-per-chunk limit.
+
+function terrain.fresh_heights()
+  local h = {}
+  for i = 1, terrain.S do
+    h[i] = math.random()
+  end
+  return h
+end
+
+function terrain.init()
+  terrain.rows = {}
+  for i = 1, terrain.N do
+    terrain.rows[i] = {
+      z       = (i - 1) / terrain.N,   -- evenly spaced 0 (horizon) .. 1 (foreground)
+      heights = terrain.fresh_heights(),
+    }
+  end
+end
+
+function terrain.trigger()
+  -- find horizon-most row (smallest z) and stamp a raised peak that rolls forward
+  local lo, idx = 2, 1
+  for i, r in ipairs(terrain.rows) do
+    if r.z < lo then lo = r.z; idx = i end
+  end
+  local r = terrain.rows[idx]
+  local center = math.random(2, terrain.S - 1)
+  for i = 1, terrain.S do
+    local d = i - center
+    r.heights[i] = math.min(1, r.heights[i] + (1.0 + audio_level) * math.exp(-d * d * 0.5))
+  end
+end
+
+function terrain.draw()
+  local bri_scale = params:get("vis_brightness") / 15.0
+  local spd       = params:get("vis_speed") * 0.012
+  local y_h, y_f  = 20, 60          -- horizon and foreground screen rows
+
+  for _, r in ipairs(terrain.rows) do
+    r.z = r.z + spd
+    if r.z >= 1 then
+      r.z       = r.z - 1
+      r.heights = terrain.fresh_heights()
+    end
+  end
+  -- draw far-to-near so nearer (brighter) ridges overdraw distant ones
+  table.sort(terrain.rows, function(a, b) return a.z < b.z end)
+
+  for _, r in ipairs(terrain.rows) do
+    local z      = r.z
+    local persp  = z * z                       -- compress rows toward the horizon
+    local row_y  = y_h + (y_f - y_h) * persp
+    local half_w = 18 + 46 * z
+    local amp    = (2 + audio_level * 14) * (0.25 + 0.75 * z)
+    local bri    = clamp(math.floor((2 + 10 * z) * bri_scale), 0, 15)
+    if bri > 0 then
+      screen.level(bri)
+      for i = 1, terrain.S do
+        local t = (i - 1) / (terrain.S - 1)
+        local x = 64 - half_w + t * half_w * 2
+        local y = row_y - r.heights[i] * amp
+        if i == 1 then screen.move(x, y) else screen.line(x, y) end
+      end
+      screen.stroke()
+    end
+  end
+end
+
+------------------------------------------------------------------------
+-- lattice theme
+------------------------------------------------------------------------
+
+function lattice.init()
+  local phi = (1 + math.sqrt(5)) / 2
+  lattice.verts = {
+    {0,  1,  phi}, {0,  1, -phi}, {0, -1,  phi}, {0, -1, -phi},
+    {1,  phi, 0}, {1, -phi, 0}, {-1,  phi, 0}, {-1, -phi, 0},
+    {phi, 0,  1}, {phi, 0, -1}, {-phi, 0,  1}, {-phi, 0, -1},
+  }
+  -- icosahedron edges = vertex pairs at the minimum (edge-length) distance, d^2 = 4
+  lattice.edges = {}
+  for i = 1, #lattice.verts do
+    for j = i + 1, #lattice.verts do
+      local a, b = lattice.verts[i], lattice.verts[j]
+      local dx, dy, dz = a[1] - b[1], a[2] - b[2], a[3] - b[3]
+      if math.abs(dx * dx + dy * dy + dz * dz - 4) < 0.1 then
+        table.insert(lattice.edges, {i, j})
+      end
+    end
+  end
+  lattice.rx, lattice.ry = 0, 0
+  lattice.kick, lattice.flash = 0, 0
+end
+
+function lattice.trigger()
+  lattice.kick  = math.min(0.5, lattice.kick + 0.15 + audio_level * 0.2)
+  lattice.flash = math.min(8, lattice.flash + 4 + audio_level * 4)
+end
+
+function lattice.draw()
+  local bri_scale = params:get("vis_brightness") / 15.0
+  local spd       = params:get("vis_speed") * 0.04
+  lattice.kick    = lattice.kick * 0.9
+  lattice.flash   = lattice.flash * 0.85
+  lattice.rx      = lattice.rx + spd + lattice.kick
+  lattice.ry      = lattice.ry + spd * 0.6 + lattice.kick * 0.7
+
+  local scale = (14 + audio_level * 9) * (1 + lattice.kick * 0.3)
+  local cx, cy = 64, 32
+  local cosx, sinx = math.cos(lattice.rx), math.sin(lattice.rx)
+  local cosy, siny = math.cos(lattice.ry), math.sin(lattice.ry)
+
+  local proj = {}
+  for i, v in ipairs(lattice.verts) do
+    local x, y, z = v[1], v[2], v[3]
+    -- rotate about X then Y
+    local y1 = y * cosx - z * sinx
+    local z1 = y * sinx + z * cosx
+    local x2 = x * cosy + z1 * siny
+    local z2 = -x * siny + z1 * cosy
+    local persp = 4 / (4 - z2)          -- viewer at +z; nearer vertices project larger
+    proj[i] = {
+      x = cx + x2 * scale * persp,
+      y = cy + y1 * scale * persp,
+      z = z2,
+    }
+  end
+
+  for _, e in ipairs(lattice.edges) do
+    local a, b  = proj[e[1]], proj[e[2]]
+    local depth = (a.z + b.z) * 0.5
+    local norm  = clamp((depth + 1.9) / 3.8, 0, 1)   -- nearer edges brighter
+    local bri   = clamp(math.floor((3 + norm * 9 + lattice.flash) * bri_scale), 0, 15)
+    if bri > 0 then
+      screen.level(bri)
+      screen.move(a.x, a.y)
+      screen.line(b.x, b.y)
+      screen.stroke()
+    end
+  end
+end
+
+------------------------------------------------------------------------
+-- kaleido theme
+------------------------------------------------------------------------
+
+function kaleido.init()
+  kaleido.parts  = {}
+  kaleido.shards = {}
+  local count = params:get("num_particles")
+  for i = 1, count do
+    kaleido.parts[i] = {
+      r   = math.random() * 30,
+      a   = math.random() * (math.pi / 3),   -- angle within one 60-degree wedge
+      dr  = 0.15 + math.random() * 0.4,
+      da  = (math.random() - 0.5) * 0.04,
+      bri = math.random(4, 11),
+    }
+  end
+end
+
+function kaleido.trigger()
+  table.insert(kaleido.shards, {
+    r   = 0,
+    a   = math.random() * (math.pi / 3),
+    spd = 1.2 + audio_level * 1.5,
+    bri = 13 + audio_level * 2,
+  })
+  if #kaleido.shards > 12 then table.remove(kaleido.shards, 1) end
+end
+
+function kaleido.draw()
+  local bri_scale = params:get("vis_brightness") / 15.0
+  local spd       = params:get("vis_speed") * 0.5
+  local cx, cy    = 64, 32
+  local bloom     = 1 + audio_level * 0.8
+  local max_r     = 40
+
+  -- plot one wedge point into all six rotations plus their mirrors (6-fold mandala)
+  local function plot(r, a, bri)
+    if bri <= 0 then return end
+    local rr = r * bloom
+    screen.level(bri)
+    for k = 0, 5 do
+      local base = k * (math.pi / 3)
+      local a1   = base + a
+      local a2   = base - a
+      screen.pixel(math.floor(cx + math.cos(a1) * rr), math.floor(cy + math.sin(a1) * rr * 0.62))
+      screen.pixel(math.floor(cx + math.cos(a2) * rr), math.floor(cy + math.sin(a2) * rr * 0.62))
+    end
+    screen.fill()
+  end
+
+  for _, p in ipairs(kaleido.parts) do
+    p.r = p.r + p.dr * (spd + audio_level * 1.5)
+    p.a = p.a + p.da
+    if p.a < 0          then p.a = p.a + math.pi / 3 end
+    if p.a > math.pi / 3 then p.a = p.a - math.pi / 3 end
+    if p.r > max_r then
+      p.r   = math.random() * 4
+      p.bri = math.random(4, 11)
+    end
+    plot(p.r, p.a, clamp(math.floor((p.bri + audio_level * 5) * bri_scale), 0, 15))
+  end
+
+  for i = #kaleido.shards, 1, -1 do
+    local s = kaleido.shards[i]
+    s.r   = s.r + s.spd * (spd + 1)
+    s.bri = s.bri - 0.4
+    if s.bri <= 0 or s.r > max_r then
+      table.remove(kaleido.shards, i)
+    else
+      plot(s.r, s.a, clamp(math.floor(s.bri * bri_scale), 0, 15))
+    end
+  end
+
+  -- centre glow
+  local gb = clamp(math.floor((3 + audio_level * 8) * bri_scale), 0, 15)
+  if gb > 0 then
+    screen.level(gb)
+    screen.circle(cx, cy, 1 + audio_level * 2)
+    screen.fill()
+  end
+end
+
+------------------------------------------------------------------------
 -- visual dispatch
 ------------------------------------------------------------------------
 
@@ -1835,6 +2072,9 @@ local function init_particles()
   elseif theme_index == 15 then init_shatter()
   elseif theme_index == 16 then init_code()
   elseif theme_index == 17 then init_orbit()
+  elseif theme_index == 18 then terrain.init()
+  elseif theme_index == 19 then lattice.init()
+  elseif theme_index == 20 then kaleido.init()
   end
 end
 
@@ -1854,6 +2094,9 @@ local function on_note_trigger()
   elseif theme_index == 15 then shatter_trigger()
   elseif theme_index == 16 then code_trigger()
   elseif theme_index == 17 then orbit_trigger()
+  elseif theme_index == 18 then terrain.trigger()
+  elseif theme_index == 19 then lattice.trigger()
+  elseif theme_index == 20 then kaleido.trigger()
   end
 end
 
@@ -2166,6 +2409,9 @@ local function draw_loop()
       elseif theme_index == 15 then draw_shatter()
       elseif theme_index == 16 then draw_code()
       elseif theme_index == 17 then draw_orbit()
+      elseif theme_index == 18 then terrain.draw()
+      elseif theme_index == 19 then lattice.draw()
+      elseif theme_index == 20 then kaleido.draw()
       end
 
       local root_names = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"}

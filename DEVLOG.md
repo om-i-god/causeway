@@ -106,11 +106,12 @@ modulates the pad. It's the one effect with its own front-panel UI: two small
 W/F bars at the bottom of the screen, brightening with numeric percentages while
 K3 is held.
 
-## The screen — seventeen audioreactive themes
+## The screen — twenty audioreactive themes
 
 The norns screen here is a visualizer, not a control surface. There are
-seventeen themes — pulse, drift, field, hex, stars, wave, rain, spiral, liss,
-tunnel, bounce, grid, flow, morph, shatter, code, and orbit — and they're cycled
+twenty themes — pulse, drift, field, hex, stars, wave, rain, spiral, liss,
+tunnel, bounce, grid, flow, morph, shatter, code, orbit, terrain, lattice, and
+kaleido — and they're cycled
 live by **holding K1 and turning E1**, with the theme name and index shown
 top-left while K1 is held. They redraw on their own metro at 1/20s, independent
 of the musical clock, and they pause when the norns params menu is open.
@@ -122,9 +123,19 @@ across all of them. The second is `on_note_trigger`, fired by every voice on
 every note: it dispatches to the current theme's trigger hook, so a note can
 spawn a ring burst (pulse), a crack (shatter), a galaxy-arm flash (spiral), a
 new lissajous ratio, a tunnel lurch, and so on. The result is that the screen is
-always moving because the music is moving. Seventeen exists for variety over a
+always moving because the music is moving. Twenty exists for variety over a
 long session — causeway is built to be left running, and one visualizer would
 wear thin.
+
+The three newest themes (2026-06-03) lean on 3D-ish geometry: **terrain** is a
+wireframe heightfield scrolling toward the viewer, ridge amplitude scaling with
+level and a note raising a peak that rolls up from the horizon; **lattice** is a
+rotating wireframe icosahedron (12 vertices / 30 edges) whose scale breathes with
+the audio and whose spin gets a decaying kick on each note; **kaleido** is a
+six-fold mirrored mandala of drifting particles that bloom outward with level and
+fire bright shards from the center on note triggers. They're namespaced as global
+tables rather than file-local functions — the main chunk had already hit Lua's
+200-local-per-chunk limit, so new top-level locals wouldn't compile.
 
 ## DAYDREAM — the OSC sidecar
 

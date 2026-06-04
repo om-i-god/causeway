@@ -404,10 +404,10 @@
 
   <!-- THEMES -->
   <section class="section" id="themes">
-    <p class="section-label">seventeen audioreactive themes</p>
+    <p class="section-label">twenty audioreactive themes</p>
     <div class="concept">
       <p>
-        The norns screen here is a <em>visualizer, not a control surface</em>. Seventeen themes,
+        The norns screen here is a <em>visualizer, not a control surface</em>. Twenty themes,
         cycled live by holding <em>K1 and turning E1</em>, redraw on their own 1/20s metro
         independent of the musical clock. Every theme reads two shared signals: <code>audio_level</code>
         (an asymmetric envelope follow of the pad output — fast attack, slow release) scales
@@ -511,6 +511,28 @@
       </div>
     </div>
 
+    <div class="log-entry">
+      <p class="log-date">2026-06-03 — three more themes</p>
+      <div class="log-body">
+        <p>
+          The visualizer grows from seventeen themes to <span class="hl">twenty</span>:
+          <code>terrain</code>, a wireframe heightfield scrolling toward the viewer with
+          audio-scaled ridge amplitude and a note-triggered peak that rolls up from the horizon;
+          <code>lattice</code>, a rotating wireframe icosahedron (12 vertices / 30 edges) whose
+          scale breathes with the audio and whose spin gets a decaying kick on each note; and
+          <code>kaleido</code>, a six-fold mirrored mandala of drifting particles that bloom
+          outward with level and fire bright shards from the center on note triggers.
+        </p>
+        <p>
+          A small structural footnote: the main chunk was already at Lua's
+          <span class="hl">200-local-per-chunk limit</span>, so the three new themes are namespaced
+          as global tables (state + functions) rather than the file's usual file-local functions —
+          the only way to add them without splitting the script. The preview chips above render
+          all twenty live.
+        </p>
+      </div>
+    </div>
+
   </section>
 
   <!-- FOOTER -->
@@ -559,7 +581,7 @@
     // ── THEME GRID ───────────────────────────────────────────────────────────
     (function() {
       const grid = document.getElementById('theme-grid');
-      // names verified from causeway.lua theme_names array (17)
+      // names verified from causeway.lua theme_names array (20)
       // descriptions verified from each theme's source comment + draw fn
       const themes = [
         ['pulse',  'concentric rings expanding from center; a note spawns a new ring'],
@@ -579,6 +601,9 @@
         ['shatter','crack lines that spawn on notes and slowly heal'],
         ['code',   'matrix-style falling character columns'],
         ['orbit',  'planets orbiting a star; audio perturbs the orbits'],
+        ['terrain','wireframe heightfield scrolling toward you; a note raises a peak at the horizon'],
+        ['lattice','a rotating wireframe icosahedron; audio breathes its scale, a note spin-kicks it'],
+        ['kaleido','six-fold mirrored mandala of drifting particles; a note fires outward shards'],
       ];
 
       const W = 168, H = 64, CX = W / 2, CY = H / 2;
@@ -661,6 +686,29 @@
           g.fillStyle = col(0.9); g.beginPath(); g.arc(CX, CY, 2.5, 0, 7); g.fill();
           for (const b of s.b) { g.strokeStyle = col(0.12); g.beginPath(); for (let j = 0; j <= 28; j++) { const a = j / 28 * 7; const x = CX + Math.cos(a) * b.r, y = CY + Math.sin(a) * b.r * 0.55; j ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke(); b.a += b.sp * 0.05; const x = CX + Math.cos(b.a) * b.r, y = CY + Math.sin(b.a) * b.r * 0.55; b.tr.push([x, y]); if (b.tr.length > 14) b.tr.shift(); for (let i = 0; i < b.tr.length; i++) { g.fillStyle = col(i / b.tr.length * 0.4); g.fillRect(b.tr[i][0], b.tr[i][1], 1, 1); } g.fillStyle = col(0.9); g.beginPath(); g.arc(x, y, 1.8, 0, 7); g.fill(); }
         },
+        terrain(g, t, s) {
+          const N = 10, S = 12, al = 0.4 + 0.4 * Math.sin(t * 1.5);
+          if (!s.rows) { s.rows = []; for (let i = 0; i < N; i++) s.rows.push({ z: i / N, h: Array.from({ length: S }, () => Math.random()) }); }
+          for (const r of s.rows) { r.z += 0.012; if (r.z >= 1) { r.z -= 1; r.h = Array.from({ length: S }, () => Math.random()); } }
+          if (!s.lt || t - s.lt > 1.2) { s.lt = t; let idx = 0, lo = 2; s.rows.forEach((r, i) => { if (r.z < lo) { lo = r.z; idx = i; } }); const c = 1 + (Math.random() * (S - 2) | 0); for (let i = 0; i < S; i++) { const d = i - c; s.rows[idx].h[i] = Math.min(1, s.rows[idx].h[i] + (1 + al) * Math.exp(-d * d * 0.5)); } }
+          for (const r of s.rows.slice().sort((a, b) => a.z - b.z)) { const z = r.z, persp = z * z; const rowY = 12 + 46 * persp; const halfW = 24 + 58 * z; const amp = (2 + al * 14) * (0.25 + 0.75 * z); g.strokeStyle = col(0.18 + 0.72 * z); g.beginPath(); for (let i = 0; i < S; i++) { const u = i / (S - 1); const x = CX - halfW + u * halfW * 2; const y = rowY - r.h[i] * amp; i ? g.lineTo(x, y) : g.moveTo(x, y); } g.stroke(); }
+        },
+        lattice(g, t, s) {
+          if (!s.v) { const phi = (1 + Math.sqrt(5)) / 2; s.v = [[0,1,phi],[0,1,-phi],[0,-1,phi],[0,-1,-phi],[1,phi,0],[1,-phi,0],[-1,phi,0],[-1,-phi,0],[phi,0,1],[phi,0,-1],[-phi,0,1],[-phi,0,-1]]; s.e = []; for (let i = 0; i < 12; i++) for (let j = i + 1; j < 12; j++) { const a = s.v[i], b = s.v[j], dx = a[0]-b[0], dy = a[1]-b[1], dz = a[2]-b[2]; if (Math.abs(dx*dx+dy*dy+dz*dz-4) < 0.1) s.e.push([i, j]); } }
+          const al = 0.4 + 0.4 * Math.sin(t * 1.3), rx = t * 0.7, ry = t * 0.45, scale = 13 + al * 8;
+          const cosx = Math.cos(rx), sinx = Math.sin(rx), cosy = Math.cos(ry), siny = Math.sin(ry);
+          const proj = s.v.map(v => { const x = v[0], y = v[1], z = v[2]; const y1 = y*cosx - z*sinx, z1 = y*sinx + z*cosx; const x2 = x*cosy + z1*siny, z2 = -x*siny + z1*cosy; const p = 4 / (4 - z2); return { x: CX + x2*scale*p, y: CY + y1*scale*p, z: z2 }; });
+          for (const e of s.e) { const a = proj[e[0]], b = proj[e[1]]; const norm = Math.max(0, Math.min(1, ((a.z + b.z) * 0.5 + 1.9) / 3.8)); g.strokeStyle = col(0.2 + norm * 0.7); g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke(); }
+        },
+        kaleido(g, t, s) {
+          if (!s.p) { s.p = []; for (let i = 0; i < 20; i++) s.p.push({ r: Math.random() * 30, a: Math.random() * (Math.PI / 3), dr: 0.15 + Math.random() * 0.4, da: (Math.random() - 0.5) * 0.04, b: 0.3 + Math.random() * 0.5 }); s.sh = []; }
+          const al = 0.4 + 0.4 * Math.sin(t * 1.6), bloom = 1 + al * 0.8, maxR = 36;
+          const plot = (r, a, lev) => { const rr = r * bloom; g.fillStyle = col(lev); for (let k = 0; k < 6; k++) { const base = k * Math.PI / 3; for (const sgn of [1, -1]) { const ang = base + sgn * a; g.fillRect(CX + Math.cos(ang) * rr - 0.6, CY + Math.sin(ang) * rr * 0.62 - 0.6, 1.6, 1.6); } } };
+          for (const p of s.p) { p.r += p.dr * (1 + al * 1.5); p.a += p.da; if (p.a < 0) p.a += Math.PI / 3; if (p.a > Math.PI / 3) p.a -= Math.PI / 3; if (p.r > maxR) p.r = Math.random() * 4; plot(p.r, p.a, Math.min(1, p.b + al * 0.4)); }
+          if (!s.lt || t - s.lt > 0.8) { s.lt = t; s.sh.push({ r: 0, a: Math.random() * Math.PI / 3, b: 1 }); }
+          s.sh = s.sh.filter(x => x.r < maxR && x.b > 0); for (const sh of s.sh) { sh.r += 1.6; sh.b -= 0.03; plot(sh.r, sh.a, Math.max(0, sh.b)); }
+          g.fillStyle = col(0.3 + al * 0.5); g.beginPath(); g.arc(CX, CY, 1.5, 0, 7); g.fill();
+        },
       };
 
       const previews = [];
@@ -668,7 +716,7 @@
         const chip = document.createElement('div');
         chip.className = 'theme-chip';
         const idx = String(i + 1).padStart(2, '0');
-        chip.innerHTML = `<span class="tn">${t[0]}</span><span class="ti">${idx}/17</span>`;
+        chip.innerHTML = `<span class="tn">${t[0]}</span><span class="ti">${idx}/${themes.length}</span>`;
         const cv = document.createElement('canvas');
         cv.className = 'theme-cv'; cv.width = W; cv.height = H;
         chip.appendChild(cv);
@@ -679,7 +727,7 @@
         previews.push({ fn: R[t[0]], ctx: cv.getContext('2d'), s: {} });
       });
 
-      // single throttled render loop driving all 17 previews (~30fps)
+      // single throttled render loop driving all previews (~30fps)
       let running = true;
       if ('IntersectionObserver' in window) {
         const io = new IntersectionObserver(es => es.forEach(e => running = e.isIntersecting), { threshold: 0 });
