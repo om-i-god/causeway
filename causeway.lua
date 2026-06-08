@@ -1,7 +1,7 @@
 -- causeway
 -- slow generative music for multiple synths
--- pad + lead + bass + secondary voice
--- v1.0
+-- pad + lead + bass + sec + vst + strata
+-- v1.4
 
 engine.name = "PolySub"
 
@@ -24,8 +24,8 @@ local BASS_RATE_NAMES = {"2 bars","4 bars","6 bars","8 bars","16 bars"}
 local SEC_RATE_NAMES  = {"1/2 bar","1 bar","2 bars","4 bars","6 bars","8 bars","16 bars"}
 local LEN_NAMES       = {"1/32","1/16","1/8","1/4","1/2","1 bar","2 bars","4 bars","8 bars"}
 
-local OSC_HOST = "192.168.1.229"
-local OSC_PORT = 52178
+-- network hosts (strata sampler + DAYDREAM scope) are configured in the
+-- NETWORK params group, so DHCP drift no longer requires a source edit.
 
 ------------------------------------------------------------------------
 -- state
@@ -61,15 +61,14 @@ local vst_active  = {}
 local strata_active = {}
 
 -- strata (sampler on another norns, over OSC) -------------------------
-local STRATA_HOST = "192.168.1.133"  -- White norns (edit if its IP drifts; DHCP)
-local STRATA_PORT = 10111           -- norns matron OSC-in
+-- host/port live in the NETWORK params group (strata_host / strata_port)
 local strata_clock                  -- coroutine handle
 local strata_pos = 1                -- independent random-walk position
 local strata_dir = 1
 
 local function strata_send(path, ...)
   if params:get("strata_on") ~= 2 then return end
-  osc.send({STRATA_HOST, STRATA_PORT}, path, {...})
+  osc.send({params:get("strata_host"), params:get("strata_port")}, path, {...})
 end
 
 local function strata_note_on(note, vel)
@@ -135,43 +134,47 @@ local time_val    = 0
 local theme_index = 1
 local theme_names = {"pulse","drift","field","hex","stars","wave","rain","spiral","liss","tunnel","bounce","grid","flow","morph","shatter","code","orbit","terrain","lattice","kaleido"}
 
-local rings      = {}
-local bands      = {}
-local columns    = {}
-local hex_nodes  = {}
+-- V: single namespace for all per-theme animation state. Holds the state that
+-- used to be ~30 separate top-level locals — collapsing them here keeps the main
+-- chunk well under Lua's 200-local-per-chunk limit so new themes can be added.
+local V = {}
+
+V.rings      = {}
+V.bands      = {}
+V.columns    = {}
+V.hex_nodes  = {}
 local stars      = {}
-local rain_drops = {}
-local bounce_balls  = {}
-local grid_nodes    = {}
-local spiral_points = {}
-local wave_phase    = 0
-local wave_phase2   = 0
-local wave_shock    = 0
-local spiral_angle  = 0
-local liss_phase    = 0
-local liss_ratio_i  = 1
-local tunnel_z      = 0
-local grid_wave_t   = 0
-local nova_rings      = {}
-local splash_particles = {}
-local liss_history    = {}
-local spiral_dust     = {}
-local shatter_flashes = {}
-local code_highlight  = 1
-local code_boost      = 0
-local tunnel_rot      = 0
-local grid_wave2_t    = 0
-local grid_src2_x     = 20
-local grid_src2_y     = 10
-local morph_vphase    = {}
+V.rain_drops = {}
+V.bounce_balls  = {}
+V.grid_nodes    = {}
+V.spiral_points = {}
+V.wave_phase    = 0
+V.wave_phase2   = 0
+V.wave_shock    = 0
+V.spiral_angle  = 0
+V.liss_phase    = 0
+V.liss_ratio_i  = 1
+V.tunnel_z      = 0
+V.grid_wave_t   = 0
+V.nova_rings      = {}
+V.splash_particles = {}
+V.liss_history    = {}
+V.spiral_dust     = {}
+V.shatter_flashes = {}
+V.code_highlight  = 1
+V.code_boost      = 0
+V.tunnel_rot      = 0
+V.grid_wave2_t    = 0
+V.grid_src2_x     = 20
+V.grid_src2_y     = 10
+V.morph_vphase    = {}
 
--- new themes: declared as globals (not locals) because the main chunk is already
--- at Lua's 200-local limit. Each namespace table holds the theme's state + funcs.
-terrain = { rows = {}, N = 10, S = 12 }
-lattice = { verts = {}, edges = {}, rx = 0, ry = 0, kick = 0, flash = 0 }
-kaleido = { parts = {}, shards = {} }
+-- 3D-ish themes: each table holds the theme's state + its init/draw/trigger funcs.
+local terrain = { rows = {}, N = 10, S = 12 }
+local lattice = { verts = {}, edges = {}, rx = 0, ry = 0, kick = 0, flash = 0 }
+local kaleido = { parts = {}, shards = {} }
 
-local LISS_RATIOS = {{1,2},{2,3},{3,4},{3,5},{4,5},{1,3},{2,5}}
+V.LISS_RATIOS = {{1,2},{2,3},{3,4},{3,5},{4,5},{1,3},{2,5}}
 
 ------------------------------------------------------------------------
 -- helpers
@@ -483,7 +486,7 @@ local OSC_PROMPTS = {
 
 local function osc_emit(path, args)
   if params:get("osc_on") ~= 2 then return end
-  osc.send({OSC_HOST, OSC_PORT}, path, args)
+  osc.send({params:get("osc_host"), params:get("osc_port")}, path, args)
 end
 
 local function active_voice_count()
@@ -520,23 +523,23 @@ end
 ------------------------------------------------------------------------
 
 local function init_pulse()
-  rings = {}
+  V.rings = {}
 end
 
 local function pulse_trigger()
   -- burst of staggered rings from center
   local n = math.random(3, 6)
   for i = 1, n do
-    if #rings < 40 then
-      table.insert(rings, {cx = 64, cy = 32, radius = i * 2.5, bri = 12 + audio_level * 3, ry = 0.55})
+    if #V.rings < 40 then
+      table.insert(V.rings, {cx = 64, cy = 32, radius = i * 2.5, bri = 12 + audio_level * 3, ry = 0.55})
     end
   end
   -- off-center echo rings
   for i = 1, math.random(1, 2) do
-    if #rings < 40 then
+    if #V.rings < 40 then
       local ang = math.random() * math.pi * 2
       local d   = 10 + math.random(0, 28)
-      table.insert(rings, {
+      table.insert(V.rings, {
         cx     = clamp(64 + math.cos(ang) * d, 8, 120),
         cy     = clamp(32 + math.sin(ang) * d * 0.5, 6, 58),
         radius = 3 + audio_level * 4,
@@ -550,12 +553,12 @@ end
 local function draw_pulse()
   local bri_scale = params:get("vis_brightness") / 15.0
   local spd = params:get("vis_speed") * 0.35
-  for i = #rings, 1, -1 do
-    local r = rings[i]
+  for i = #V.rings, 1, -1 do
+    local r = V.rings[i]
     r.radius = r.radius + spd
     r.bri    = r.bri - 0.2
     if r.bri <= 0 or r.radius > 90 then
-      table.remove(rings, i)
+      table.remove(V.rings, i)
     else
       local b = clamp(math.floor(r.bri * bri_scale), 0, 15)
       if b > 0 then
@@ -591,10 +594,10 @@ end
 ------------------------------------------------------------------------
 
 local function init_drift()
-  bands = {}
+  V.bands = {}
   local count = params:get("num_particles")
   for i = 1, count do
-    bands[i] = {
+    V.bands[i] = {
       y     = math.random(0, 63),
       w     = math.random(12, 64),
       h     = math.random(1, 2),
@@ -608,7 +611,7 @@ end
 local function draw_drift()
   local bri_scale = params:get("vis_brightness") / 15.0
   local vis_spd   = params:get("vis_speed") * 0.005
-  for _, b in ipairs(bands) do
+  for _, b in ipairs(V.bands) do
     b.phase = b.phase + vis_spd + audio_level * 0.025
     -- gentle pull toward centre at high audio
     local pull = audio_level * 0.25
@@ -641,11 +644,11 @@ end
 ------------------------------------------------------------------------
 
 local function init_field()
-  columns = {}
+  V.columns = {}
   local count = math.max(params:get("num_particles"), 16)
   local cw    = math.floor(128 / count)
   for i = 1, count do
-    columns[i] = {
+    V.columns[i] = {
       x     = (i - 1) * cw,
       cw    = cw,
       h     = math.random(2, 18),
@@ -659,7 +662,7 @@ end
 local function draw_field()
   local bri_scale = params:get("vis_brightness") / 15.0
   local vis_spd   = params:get("vis_speed") * 0.015
-  for _, c in ipairs(columns) do
+  for _, c in ipairs(V.columns) do
     c.phase = c.phase + c.speed + vis_spd
     local h = math.floor((c.h + math.sin(c.phase) * c.h * 0.6) * (1 + audio_level * 3.5))
     h = clamp(h, 1, 30)
@@ -691,14 +694,14 @@ end
 ------------------------------------------------------------------------
 
 local function init_hex()
-  hex_nodes = {}
+  V.hex_nodes = {}
   local r = 11
   for row = 0, 5 do
     for col = 0, 8 do
       local x = col * r * 1.732 + (row % 2) * r * 0.866 - 16
       local y = row * r * 1.5 - 8
       if x >= -r and x <= 128 + r and y >= -r and y <= 64 + r then
-        table.insert(hex_nodes, {
+        table.insert(V.hex_nodes, {
           x = x, y = y, r = r,
           bri   = math.random(1, 3),
           phase = math.random() * math.pi * 2,
@@ -712,13 +715,13 @@ end
 local function hex_trigger()
   local seeds = {}
   for i = 1, math.random(1, 3) do
-    local ni = math.random(1, #hex_nodes)
-    hex_nodes[ni].pulse = 13 + audio_level * 2
-    table.insert(seeds, hex_nodes[ni])
+    local ni = math.random(1, #V.hex_nodes)
+    V.hex_nodes[ni].pulse = 13 + audio_level * 2
+    table.insert(seeds, V.hex_nodes[ni])
   end
   -- propagate to hex neighbors
   for _, seed in ipairs(seeds) do
-    for _, node in ipairs(hex_nodes) do
+    for _, node in ipairs(V.hex_nodes) do
       local d = math.sqrt((node.x - seed.x)^2 + (node.y - seed.y)^2)
       if d > 2 and d < 26 then
         node.pulse = math.max(node.pulse, 7 + audio_level * 5)
@@ -732,12 +735,12 @@ local function draw_hex()
   local vis_spd   = params:get("vis_speed") * 0.008
   -- connections between bright adjacent nodes
   if audio_level > 0.15 then
-    for i = 1, #hex_nodes do
-      local a  = hex_nodes[i]
+    for i = 1, #V.hex_nodes do
+      local a  = V.hex_nodes[i]
       local ab = a.bri + math.sin(a.phase) * 1.5 + a.pulse + audio_level * 6
       if ab > 7 then
-        for j = i + 1, #hex_nodes do
-          local b = hex_nodes[j]
+        for j = i + 1, #V.hex_nodes do
+          local b = V.hex_nodes[j]
           local d2 = (a.x - b.x)^2 + (a.y - b.y)^2
           if d2 < 576 then  -- ~24px
             local bb = b.bri + math.sin(b.phase) * 1.5 + b.pulse + audio_level * 6
@@ -755,7 +758,7 @@ local function draw_hex()
       end
     end
   end
-  for _, node in ipairs(hex_nodes) do
+  for _, node in ipairs(V.hex_nodes) do
     node.phase = node.phase + vis_spd
     node.pulse = node.pulse * 0.88
     local bri = clamp(math.floor(
@@ -773,7 +776,7 @@ end
 
 local function init_stars()
   stars      = {}
-  nova_rings = {}
+  V.nova_rings = {}
   local count = params:get("num_particles")
   for i = 1, count do
     local angle = math.random() * math.pi * 2
@@ -804,8 +807,8 @@ local function stars_trigger()
   while #stars > 120 do table.remove(stars, 1) end
   if audio_level > 0.3 and math.random() < 0.45 and #stars > 0 then
     local s = stars[math.random(#stars)]
-    table.insert(nova_rings, {x = s.x, y = s.y, r = 1.5, bri = 14})
-    while #nova_rings > 8 do table.remove(nova_rings, 1) end
+    table.insert(V.nova_rings, {x = s.x, y = s.y, r = 1.5, bri = 14})
+    while #V.nova_rings > 8 do table.remove(V.nova_rings, 1) end
   end
 end
 
@@ -841,12 +844,12 @@ local function draw_stars()
       end
     end
   end
-  for i = #nova_rings, 1, -1 do
-    local n = nova_rings[i]
+  for i = #V.nova_rings, 1, -1 do
+    local n = V.nova_rings[i]
     n.r   = n.r + vis_spd * warp * 1.8
     n.bri = n.bri - 0.55
     if n.bri <= 0 or n.r > 48 then
-      table.remove(nova_rings, i)
+      table.remove(V.nova_rings, i)
     else
       local nb = clamp(math.floor(n.bri * bri_scale), 0, 15)
       if nb > 0 then
@@ -863,23 +866,23 @@ end
 ------------------------------------------------------------------------
 
 local function init_wave()
-  wave_phase  = 0
-  wave_phase2 = math.pi * 0.7
-  wave_shock  = 0
+  V.wave_phase  = 0
+  V.wave_phase2 = math.pi * 0.7
+  V.wave_shock  = 0
 end
 
 local function wave_trigger()
-  wave_shock = math.min(1.0, wave_shock + 0.6 + audio_level * 0.8)
+  V.wave_shock = math.min(1.0, V.wave_shock + 0.6 + audio_level * 0.8)
 end
 
 local function draw_wave()
   local bri_scale = params:get("vis_brightness") / 15.0
   local vis_spd   = params:get("vis_speed") * 0.022
-  wave_phase  = wave_phase  + vis_spd + audio_level * 0.055
-  wave_phase2 = wave_phase2 + vis_spd * 1.37 + audio_level * 0.03
-  wave_shock  = wave_shock  * 0.88
+  V.wave_phase  = V.wave_phase  + vis_spd + audio_level * 0.055
+  V.wave_phase2 = V.wave_phase2 + vis_spd * 1.37 + audio_level * 0.03
+  V.wave_shock  = V.wave_shock  * 0.88
 
-  local shock_amp = wave_shock * 14
+  local shock_amp = V.wave_shock * 14
   local amp   = 8 + audio_level * 18 + shock_amp
   local amp2  = (amp * 0.52) + shock_amp * 0.4
   local amp3  = amp * 0.28
@@ -888,11 +891,11 @@ local function draw_wave()
   local freq3 = 0.118
 
   -- fill envelope under primary wave
-  local fill_bri = clamp(math.floor((1 + audio_level * 5 + wave_shock * 4) * bri_scale), 0, 15)
+  local fill_bri = clamp(math.floor((1 + audio_level * 5 + V.wave_shock * 4) * bri_scale), 0, 15)
   if fill_bri > 0 then
     screen.level(fill_bri)
     for x = 0, 127, 2 do
-      local wy = math.floor(32 + amp * math.sin(x * freq + wave_phase))
+      local wy = math.floor(32 + amp * math.sin(x * freq + V.wave_phase))
       local y1 = clamp(math.min(wy, 32), 0, 63)
       local y2 = clamp(math.max(wy, 32), 0, 63)
       if y2 > y1 then
@@ -902,36 +905,36 @@ local function draw_wave()
   end
 
   -- tertiary wave (faintest, fastest)
-  local bri3 = clamp(math.floor((2 + audio_level * 4 + wave_shock * 5) * bri_scale), 0, 15)
+  local bri3 = clamp(math.floor((2 + audio_level * 4 + V.wave_shock * 5) * bri_scale), 0, 15)
   if bri3 > 0 then
     screen.level(bri3)
-    screen.move(0, clamp(math.floor(32 + amp3 * math.sin(wave_phase * 1.6)), 0, 63))
+    screen.move(0, clamp(math.floor(32 + amp3 * math.sin(V.wave_phase * 1.6)), 0, 63))
     for x = 1, 127 do
-      local y = math.floor(32 + amp3 * math.sin(x * freq3 + wave_phase * 1.6))
+      local y = math.floor(32 + amp3 * math.sin(x * freq3 + V.wave_phase * 1.6))
       screen.line(x, clamp(y, 0, 63))
     end
     screen.stroke()
   end
 
   -- secondary wave
-  local bri2 = clamp(math.floor((4 + audio_level * 6 + wave_shock * 6) * bri_scale), 0, 15)
+  local bri2 = clamp(math.floor((4 + audio_level * 6 + V.wave_shock * 6) * bri_scale), 0, 15)
   if bri2 > 0 then
     screen.level(bri2)
-    screen.move(0, clamp(math.floor(32 + amp2 * math.sin(wave_phase2)), 0, 63))
+    screen.move(0, clamp(math.floor(32 + amp2 * math.sin(V.wave_phase2)), 0, 63))
     for x = 1, 127 do
-      local y = math.floor(32 + amp2 * math.sin(x * freq2 - wave_phase2))
+      local y = math.floor(32 + amp2 * math.sin(x * freq2 - V.wave_phase2))
       screen.line(x, clamp(y, 0, 63))
     end
     screen.stroke()
   end
 
   -- primary wave (brightest)
-  local bri1 = clamp(math.floor((7 + audio_level * 8 + wave_shock * 8) * bri_scale), 0, 15)
+  local bri1 = clamp(math.floor((7 + audio_level * 8 + V.wave_shock * 8) * bri_scale), 0, 15)
   if bri1 > 0 then
     screen.level(bri1)
-    screen.move(0, clamp(math.floor(32 + amp * math.sin(wave_phase)), 0, 63))
+    screen.move(0, clamp(math.floor(32 + amp * math.sin(V.wave_phase)), 0, 63))
     for x = 1, 127 do
-      local y = math.floor(32 + amp * math.sin(x * freq + wave_phase))
+      local y = math.floor(32 + amp * math.sin(x * freq + V.wave_phase))
       screen.line(x, clamp(y, 0, 63))
     end
     screen.stroke()
@@ -943,12 +946,12 @@ end
 ------------------------------------------------------------------------
 
 local function init_rain()
-  rain_drops        = {}
-  splash_particles  = {}
+  V.rain_drops        = {}
+  V.splash_particles  = {}
   local count = params:get("num_particles")
   for i = 1, count do
     local spd = math.random() * 1.2 + 0.4
-    table.insert(rain_drops, {
+    table.insert(V.rain_drops, {
       x   = math.random(0, 127),
       y   = math.random(0, 63),
       spd = spd,
@@ -961,9 +964,9 @@ end
 
 local function rain_trigger()
   for i = 1, math.random(5, 14) do
-    if #rain_drops < 110 then
+    if #V.rain_drops < 110 then
       local spd = math.random() * 1.8 + 1.2 + audio_level * 2.5
-      table.insert(rain_drops, {
+      table.insert(V.rain_drops, {
         x   = math.random(0, 127),
         y   = -math.random(0, 12),
         spd = spd,
@@ -980,14 +983,14 @@ local function draw_rain()
   local vis_spd   = params:get("vis_speed") * 0.35
   local wind      = math.sin(time_val * 0.3) * audio_level * 0.8
   -- splash particles
-  for i = #splash_particles, 1, -1 do
-    local sp = splash_particles[i]
+  for i = #V.splash_particles, 1, -1 do
+    local sp = V.splash_particles[i]
     sp.x   = sp.x + sp.vx
     sp.y   = sp.y + sp.vy
     sp.vy  = sp.vy + 0.15
     sp.bri = sp.bri - 0.55
     if sp.bri <= 0 or sp.y > 65 then
-      table.remove(splash_particles, i)
+      table.remove(V.splash_particles, i)
     else
       local sb = clamp(math.floor(sp.bri * bri_scale), 0, 15)
       if sb > 0 then
@@ -997,20 +1000,20 @@ local function draw_rain()
       end
     end
   end
-  for i = #rain_drops, 1, -1 do
-    local d = rain_drops[i]
+  for i = #V.rain_drops, 1, -1 do
+    local d = V.rain_drops[i]
     local fall = d.spd * (vis_spd + 0.5 + audio_level * 2.2)
     d.y = d.y + fall
     d.x = d.x + d.dx + wind
     if d.x < 0 then d.x = d.x + 128 end
     if d.x > 127 then d.x = d.x - 128 end
     if d.y > 64 + d.len then
-      if #splash_particles < 60 then
+      if #V.splash_particles < 60 then
         local nx = math.floor(d.x)
         for s = 1, math.random(2, 4) do
           local sang = math.pi + (math.random() - 0.5) * math.pi * 0.9
           local sv   = 0.6 + math.random() * 0.9 + audio_level * 0.8
-          table.insert(splash_particles, {
+          table.insert(V.splash_particles, {
             x = nx, y = 61,
             vx = math.cos(sang) * sv,
             vy = math.sin(sang) * sv - 0.4,
@@ -1042,28 +1045,28 @@ end
 ------------------------------------------------------------------------
 
 local function init_spiral()
-  spiral_angle  = 0
-  spiral_points = {}
-  spiral_dust   = {}
+  V.spiral_angle  = 0
+  V.spiral_points = {}
+  V.spiral_dust   = {}
   local arms  = 4
   local count = math.max(params:get("num_particles"), 40)
   for arm_i = 1, arms do
     local arm_offset = (arm_i - 1) * math.pi * 2 / arms
     for j = 1, math.floor(count / arms) do
       local t = j / math.floor(count / arms) * math.pi * 3.5
-      table.insert(spiral_points, {t = t, arm = arm_offset, arm_i = arm_i, bri = math.random(2, 6)})
+      table.insert(V.spiral_points, {t = t, arm = arm_offset, arm_i = arm_i, bri = math.random(2, 6)})
     end
   end
   for i = 1, 22 do
     local t   = math.random() * math.pi * 3.5
     local ang = math.random() * math.pi * 2
     local r   = t * 5.0 + (math.random() - 0.5) * 7
-    table.insert(spiral_dust, {r = r, ang = ang, drift = (math.random() - 0.5) * 0.002, bri = math.random(1, 3)})
+    table.insert(V.spiral_dust, {r = r, ang = ang, drift = (math.random() - 0.5) * 0.002, bri = math.random(1, 3)})
   end
 end
 
 local function spiral_trigger()
-  for _, p in ipairs(spiral_points) do
+  for _, p in ipairs(V.spiral_points) do
     p.bri = math.min(13, p.bri + audio_level * 10)
   end
 end
@@ -1071,12 +1074,12 @@ end
 local function draw_spiral()
   local bri_scale = params:get("vis_brightness") / 15.0
   local vis_spd   = params:get("vis_speed") * 0.016
-  spiral_angle = spiral_angle + vis_spd + audio_level * 0.04
+  V.spiral_angle = V.spiral_angle + vis_spd + audio_level * 0.04
   local scale  = 1 + audio_level * 0.55
   local arms   = 4
 
   -- dust particles
-  for _, d in ipairs(spiral_dust) do
+  for _, d in ipairs(V.spiral_dust) do
     d.ang = d.ang + vis_spd * 0.5 + d.drift
     local x = math.floor(64 + math.cos(d.ang) * d.r * scale)
     local y = math.floor(32 + math.sin(d.ang) * d.r * scale * 0.5)
@@ -1088,11 +1091,11 @@ local function draw_spiral()
 
   for arm_i = 1, arms do
     local prev_x, prev_y, prev_bri
-    for _, p in ipairs(spiral_points) do
+    for _, p in ipairs(V.spiral_points) do
       if p.arm_i == arm_i then
         p.bri = p.bri * 0.975 + math.random(1, 4) * 0.025
         local r     = p.t * 5.0 * scale
-        local angle = p.t + p.arm + spiral_angle
+        local angle = p.t + p.arm + V.spiral_angle
         local x = math.floor(64 + math.cos(angle) * r)
         local y = math.floor(32 + math.sin(angle) * r * 0.5)
         local bri = clamp(math.floor((p.bri + audio_level * 7) * bri_scale), 0, 15)
@@ -1117,21 +1120,21 @@ end
 ------------------------------------------------------------------------
 
 local function init_lissajous()
-  liss_phase   = 0
-  liss_ratio_i = 1
-  liss_history = {}
+  V.liss_phase   = 0
+  V.liss_ratio_i = 1
+  V.liss_history = {}
 end
 
 local function liss_trigger()
-  liss_ratio_i = (liss_ratio_i % #LISS_RATIOS) + 1
+  V.liss_ratio_i = (V.liss_ratio_i % #V.LISS_RATIOS) + 1
 end
 
 local function draw_lissajous()
   local bri_scale = params:get("vis_brightness") / 15.0
   local vis_spd   = params:get("vis_speed") * 0.007
-  liss_phase = liss_phase + vis_spd + audio_level * 0.012
+  V.liss_phase = V.liss_phase + vis_spd + audio_level * 0.012
 
-  local ratio = LISS_RATIOS[liss_ratio_i]
+  local ratio = V.LISS_RATIOS[V.liss_ratio_i]
   local a, b  = ratio[1], ratio[2]
   local amp_x = 56 + audio_level * 8
   local amp_y = 26 + audio_level * 5
@@ -1142,17 +1145,17 @@ local function draw_lissajous()
   for i = 0, steps do
     local t = i / steps * math.pi * 2
     cur[i + 1] = {
-      x = math.floor(64 + amp_x * math.sin(a * t + liss_phase)),
+      x = math.floor(64 + amp_x * math.sin(a * t + V.liss_phase)),
       y = math.floor(32 + amp_y * math.sin(b * t)),
     }
   end
 
   -- ghost history traces
-  for hi = 1, #liss_history do
-    local fade    = 1.0 - hi / (#liss_history + 1)
+  for hi = 1, #V.liss_history do
+    local fade    = 1.0 - hi / (#V.liss_history + 1)
     local ghost_b = clamp(math.floor((3 + audio_level * 3) * fade * bri_scale), 0, 15)
     if ghost_b > 0 then
-      local pts = liss_history[hi]
+      local pts = V.liss_history[hi]
       screen.level(ghost_b)
       screen.move(pts[1].x, pts[1].y)
       for j = 2, #pts do screen.line(pts[j].x, pts[j].y) end
@@ -1163,7 +1166,7 @@ local function draw_lissajous()
   -- echo offset by audio
   local bri2 = clamp(math.floor((2 + audio_level * 6) * bri_scale), 0, 15)
   if bri2 > 0 and audio_level > 0.08 then
-    local ph2 = liss_phase + audio_level * 0.35
+    local ph2 = V.liss_phase + audio_level * 0.35
     screen.level(bri2)
     screen.move(math.floor(64 + amp_x * 0.65 * math.sin(a * 0 + ph2)),
                 math.floor(32 + amp_y * 0.65 * math.sin(b * 0)))
@@ -1185,9 +1188,9 @@ local function draw_lissajous()
   end
 
   -- snapshot for history
-  if math.floor(liss_phase * 6) % 4 == 0 then
-    table.insert(liss_history, 1, cur)
-    while #liss_history > 2 do table.remove(liss_history) end
+  if math.floor(V.liss_phase * 6) % 4 == 0 then
+    table.insert(V.liss_history, 1, cur)
+    while #V.liss_history > 2 do table.remove(V.liss_history) end
   end
 end
 
@@ -1196,33 +1199,33 @@ end
 ------------------------------------------------------------------------
 
 local function init_tunnel()
-  tunnel_z   = 0
-  tunnel_rot = 0
+  V.tunnel_z   = 0
+  V.tunnel_rot = 0
 end
 
 local function tunnel_trigger()
-  tunnel_z = tunnel_z + 0.18 + audio_level * 0.12
-  if tunnel_z >= 1 then tunnel_z = tunnel_z - 1 end
+  V.tunnel_z = V.tunnel_z + 0.18 + audio_level * 0.12
+  if V.tunnel_z >= 1 then V.tunnel_z = V.tunnel_z - 1 end
 end
 
 local function draw_tunnel()
   local bri_scale = params:get("vis_brightness") / 15.0
   local vis_spd   = params:get("vis_speed") * 0.012
-  tunnel_z   = tunnel_z   + vis_spd + audio_level * 0.035
-  if tunnel_z >= 1 then tunnel_z = tunnel_z - 1 end
-  tunnel_rot = tunnel_rot + vis_spd * 0.25 + audio_level * 0.007
+  V.tunnel_z   = V.tunnel_z   + vis_spd + audio_level * 0.035
+  if V.tunnel_z >= 1 then V.tunnel_z = V.tunnel_z - 1 end
+  V.tunnel_rot = V.tunnel_rot + vis_spd * 0.25 + audio_level * 0.007
 
   -- audio shifts vanishing point slightly
-  local ox = 64 + math.sin(tunnel_rot * 0.7) * audio_level * 9
-  local oy = 32 + math.cos(tunnel_rot * 0.5) * audio_level * 4
+  local ox = 64 + math.sin(V.tunnel_rot * 0.7) * audio_level * 9
+  local oy = 32 + math.cos(V.tunnel_rot * 0.5) * audio_level * 4
 
   local num_rings = 10
   for i = 1, num_rings do
-    local t   = ((i / num_rings) + tunnel_z) % 1.0
+    local t   = ((i / num_rings) + V.tunnel_z) % 1.0
     local s   = t * t
     local hw  = s * 63
     local hh  = s * 31
-    local rot = tunnel_rot * (1 - s) * 0.5
+    local rot = V.tunnel_rot * (1 - s) * 0.5
     local cr  = math.cos(rot)
     local sr  = math.sin(rot)
     local bri = clamp(math.floor((s * 11 + audio_level * 7) * bri_scale), 0, 15)
@@ -1251,12 +1254,12 @@ end
 ------------------------------------------------------------------------
 
 local function init_bounce()
-  bounce_balls = {}
+  V.bounce_balls = {}
   local count = clamp(math.floor(params:get("num_particles") / 6), 2, 8)
   for i = 1, count do
     local angle = math.random() * math.pi * 2
     local speed = math.random() * 1.2 + 0.6
-    table.insert(bounce_balls, {
+    table.insert(V.bounce_balls, {
       x     = math.random(6, 122),
       y     = math.random(6, 58),
       vx    = math.cos(angle) * speed,
@@ -1269,7 +1272,7 @@ local function init_bounce()
 end
 
 local function bounce_trigger()
-  for _, b in ipairs(bounce_balls) do
+  for _, b in ipairs(V.bounce_balls) do
     local boost = 1.5 + audio_level * 3.0
     b.vx = b.vx * boost
     b.vy = b.vy * boost
@@ -1284,9 +1287,9 @@ local function draw_bounce()
   local vis_spd   = params:get("vis_speed") * 0.28
 
   -- weak inter-ball attraction
-  for i = 1, #bounce_balls do
-    for j = i + 1, #bounce_balls do
-      local bi, bj = bounce_balls[i], bounce_balls[j]
+  for i = 1, #V.bounce_balls do
+    for j = i + 1, #V.bounce_balls do
+      local bi, bj = V.bounce_balls[i], V.bounce_balls[j]
       local dx = bj.x - bi.x
       local dy = bj.y - bi.y
       local d2 = dx * dx + dy * dy
@@ -1298,7 +1301,7 @@ local function draw_bounce()
     end
   end
 
-  for _, b in ipairs(bounce_balls) do
+  for _, b in ipairs(V.bounce_balls) do
     table.insert(b.trail, {x = b.x, y = b.y})
     while #b.trail > 10 do table.remove(b.trail, 1) end
 
@@ -1336,15 +1339,15 @@ end
 ------------------------------------------------------------------------
 
 local function init_grid()
-  grid_nodes   = {}
-  grid_wave_t  = 0
-  grid_wave2_t = 0
-  grid_src2_x  = 20
-  grid_src2_y  = 10
+  V.grid_nodes   = {}
+  V.grid_wave_t  = 0
+  V.grid_wave2_t = 0
+  V.grid_src2_x  = 20
+  V.grid_src2_y  = 10
   local cols, rows = 16, 8
   for row = 0, rows - 1 do
     for col = 0, cols - 1 do
-      table.insert(grid_nodes, {
+      table.insert(V.grid_nodes, {
         x   = col * 8 + 4,
         y   = row * 8 + 4,
         bri = math.random(1, 3),
@@ -1356,28 +1359,28 @@ local function init_grid()
 end
 
 local function grid_trigger()
-  grid_wave_t  = grid_wave_t  + math.pi * 0.6 + audio_level * math.pi * 1.2
-  grid_wave2_t = grid_wave2_t + math.pi * 0.4 + audio_level * math.pi * 0.9
+  V.grid_wave_t  = V.grid_wave_t  + math.pi * 0.6 + audio_level * math.pi * 1.2
+  V.grid_wave2_t = V.grid_wave2_t + math.pi * 0.4 + audio_level * math.pi * 0.9
 end
 
 local function draw_grid()
   local bri_scale = params:get("vis_brightness") / 15.0
   local vis_spd   = params:get("vis_speed") * 0.035
-  grid_wave_t  = grid_wave_t  + vis_spd + audio_level * 0.07
-  grid_wave2_t = grid_wave2_t + vis_spd * 0.71 + audio_level * 0.05
-  grid_src2_x  = 64 + math.sin(time_val * 0.4) * 44
-  grid_src2_y  = 32 + math.cos(time_val * 0.3) * 22
+  V.grid_wave_t  = V.grid_wave_t  + vis_spd + audio_level * 0.07
+  V.grid_wave2_t = V.grid_wave2_t + vis_spd * 0.71 + audio_level * 0.05
+  V.grid_src2_x  = 64 + math.sin(time_val * 0.4) * 44
+  V.grid_src2_y  = 32 + math.cos(time_val * 0.3) * 22
 
   local brights = {}
-  for idx, node in ipairs(grid_nodes) do
+  for idx, node in ipairs(V.grid_nodes) do
     local dx1  = (node.x - 64) / 58.0
     local dy1  = (node.y - 32) / 30.0
     local d1   = math.sqrt(dx1*dx1 + dy1*dy1) * 3.5
-    local dx2  = (node.x - grid_src2_x) / 58.0
-    local dy2  = (node.y - grid_src2_y) / 30.0
+    local dx2  = (node.x - V.grid_src2_x) / 58.0
+    local dy2  = (node.y - V.grid_src2_y) / 30.0
     local d2   = math.sqrt(dx2*dx2 + dy2*dy2) * 3.5
-    local wave = math.sin(grid_wave_t  - d1) * 0.65
-              + math.sin(grid_wave2_t - d2) * 0.35
+    local wave = math.sin(V.grid_wave_t  - d1) * 0.65
+              + math.sin(V.grid_wave2_t - d2) * 0.35
     local raw  = node.bri + wave * 6 + audio_level * 9
     local bri  = clamp(math.floor(raw * bri_scale), 0, 15)
     brights[idx] = bri
@@ -1394,7 +1397,7 @@ local function draw_grid()
 
   -- connections between bright horizontal neighbors
   if audio_level > 0.15 then
-    for idx, node in ipairs(grid_nodes) do
+    for idx, node in ipairs(V.grid_nodes) do
       if brights[idx] and brights[idx] > 5 and node.col < 15 then
         local ridx = idx + 1
         if brights[ridx] and brights[ridx] > 5 then
@@ -1402,7 +1405,7 @@ local function draw_grid()
           if cb > 0 then
             screen.level(cb)
             screen.move(node.x + 2, node.y + 1)
-            screen.line(grid_nodes[ridx].x, grid_nodes[ridx].y + 1)
+            screen.line(V.grid_nodes[ridx].x, V.grid_nodes[ridx].y + 1)
             screen.stroke()
           end
         end
@@ -1415,13 +1418,13 @@ end
 -- flow theme  (curl-noise vector field particles)
 ------------------------------------------------------------------------
 
-local flow_particles = {}
+V.flow_particles = {}
 
 local function init_flow()
-  flow_particles = {}
+  V.flow_particles = {}
   local count = params:get("num_particles")
   for i = 1, count do
-    table.insert(flow_particles, {
+    table.insert(V.flow_particles, {
       x     = math.random(0, 127),
       y     = math.random(0, 63),
       bri   = math.random(3, 9),
@@ -1433,8 +1436,8 @@ end
 
 local function flow_trigger()
   for i = 1, math.random(6, 14) do
-    if #flow_particles < 120 then
-      table.insert(flow_particles, {
+    if #V.flow_particles < 120 then
+      table.insert(V.flow_particles, {
         x     = math.random(0, 127),
         y     = math.random(0, 63),
         bri   = 11 + audio_level * 4,
@@ -1451,7 +1454,7 @@ local function draw_flow()
   local t         = time_val
   local ax1 = math.sin(t * 0.31) * math.pi
   local ax2 = math.cos(t * 0.19) * math.pi
-  for _, p in ipairs(flow_particles) do
+  for _, p in ipairs(V.flow_particles) do
     table.insert(p.trail, {x = p.x, y = p.y})
     while #p.trail > 5 do table.remove(p.trail, 1) end
     local nx  = p.x / 38.0
@@ -1510,8 +1513,8 @@ local function init_morph()
   morph_t      = 0
   morph_from_i = 1
   morph_to_i   = 2
-  morph_vphase = {}
-  for i = 1, 16 do morph_vphase[i] = math.random() * math.pi * 2 end
+  V.morph_vphase = {}
+  for i = 1, 16 do V.morph_vphase[i] = math.random() * math.pi * 2 end
 end
 
 local function morph_trigger()
@@ -1519,7 +1522,7 @@ local function morph_trigger()
   morph_to_i   = (morph_to_i % #morph_sides) + 1
   morph_t      = 0
   for i = 1, 16 do
-    morph_vphase[i] = morph_vphase[i] + (math.random() - 0.5) * math.pi * 1.5
+    V.morph_vphase[i] = V.morph_vphase[i] + (math.random() - 0.5) * math.pi * 1.5
   end
 end
 
@@ -1533,9 +1536,9 @@ local function draw_morph()
     morph_to_i   = (morph_to_i % #morph_sides) + 1
     morph_t      = 0
   end
-  if morph_vphase then
+  if V.morph_vphase then
     for i = 1, 16 do
-      morph_vphase[i] = morph_vphase[i] + vis_spd * 0.4 + audio_level * 0.005
+      V.morph_vphase[i] = V.morph_vphase[i] + vis_spd * 0.4 + audio_level * 0.005
     end
   end
 
@@ -1561,9 +1564,9 @@ local function draw_morph()
         local vi1    = math.floor(frac * 7) + 1
         local vi2    = (vi1 % 8) + 1
         local noise  = 0
-        if morph_vphase then
-          noise = math.sin(morph_vphase[vi1] + frac * math.pi * 4) * noise_a
-                + math.sin(morph_vphase[vi2] - frac * math.pi * 3) * noise_a * 0.45
+        if V.morph_vphase then
+          noise = math.sin(V.morph_vphase[vi1] + frac * math.pi * 4) * noise_a
+                + math.sin(V.morph_vphase[vi2] - frac * math.pi * 3) * noise_a * 0.45
         end
         local r = base_r + noise
         local x = math.floor(cx + math.cos(ang) * r)
@@ -1583,17 +1586,17 @@ end
 -- shatter theme  (crack lines that spawn on notes and slowly heal)
 ------------------------------------------------------------------------
 
-local shatter_cracks = {}
+V.shatter_cracks = {}
 
 local function init_shatter()
-  shatter_cracks  = {}
-  shatter_flashes = {}
+  V.shatter_cracks  = {}
+  V.shatter_flashes = {}
 end
 
 local function shatter_trigger()
   local ox  = math.random(20, 108)
   local oy  = math.random(10, 54)
-  table.insert(shatter_flashes, {x = ox, y = oy, r = 2 + audio_level * 3, bri = 15})
+  table.insert(V.shatter_flashes, {x = ox, y = oy, r = 2 + audio_level * 3, bri = 15})
   local num = math.random(5, 9) + math.floor(audio_level * 6)
   for i = 1, num do
     local ang  = math.random() * math.pi * 2
@@ -1608,9 +1611,9 @@ local function shatter_trigger()
       cy = cy + math.sin(ang) * dl * 0.6
       table.insert(points, {x = clamp(cx, 0, 127), y = clamp(cy, 0, 63)})
     end
-    table.insert(shatter_cracks, {points = points, bri = 12 + audio_level * 3})
+    table.insert(V.shatter_cracks, {points = points, bri = 12 + audio_level * 3})
     -- branch crack
-    if math.random() < 0.45 and #shatter_cracks < 65 and #points >= 2 then
+    if math.random() < 0.45 and #V.shatter_cracks < 65 and #points >= 2 then
       local bi   = math.random(2, #points)
       local bang = ang + (math.random() < 0.5 and 1 or -1) * (0.4 + math.random() * 0.5)
       local blen = len * (0.3 + math.random() * 0.4)
@@ -1622,20 +1625,20 @@ local function shatter_trigger()
         bx = bx + math.cos(bang) * dl; by = by + math.sin(bang) * dl * 0.6
         table.insert(bpts, {x = clamp(bx,0,127), y = clamp(by,0,63)})
       end
-      table.insert(shatter_cracks, {points = bpts, bri = 9 + audio_level * 3})
+      table.insert(V.shatter_cracks, {points = bpts, bri = 9 + audio_level * 3})
     end
   end
-  while #shatter_cracks > 70 do table.remove(shatter_cracks, 1) end
+  while #V.shatter_cracks > 70 do table.remove(V.shatter_cracks, 1) end
 end
 
 local function draw_shatter()
   local bri_scale = params:get("vis_brightness") / 15.0
   local vis_spd   = params:get("vis_speed") * 0.004
-  for i = #shatter_flashes, 1, -1 do
-    local f = shatter_flashes[i]
+  for i = #V.shatter_flashes, 1, -1 do
+    local f = V.shatter_flashes[i]
     f.bri = f.bri - 1.4; f.r = f.r + 0.9
     if f.bri <= 0 then
-      table.remove(shatter_flashes, i)
+      table.remove(V.shatter_flashes, i)
     else
       local fb = clamp(math.floor(f.bri * bri_scale), 0, 15)
       if fb > 0 then
@@ -1643,11 +1646,11 @@ local function draw_shatter()
       end
     end
   end
-  for i = #shatter_cracks, 1, -1 do
-    local c = shatter_cracks[i]
+  for i = #V.shatter_cracks, 1, -1 do
+    local c = V.shatter_cracks[i]
     c.bri = c.bri - 0.05 - vis_spd * 2
     if c.bri <= 0 then
-      table.remove(shatter_cracks, i)
+      table.remove(V.shatter_cracks, i)
     else
       local bri = clamp(math.floor((c.bri + audio_level * 4) * bri_scale), 0, 15)
       if bri > 0 and #c.points >= 2 then
@@ -1666,16 +1669,16 @@ end
 -- code theme  (matrix-style falling character columns)
 ------------------------------------------------------------------------
 
-local code_cols  = {}
+V.code_cols  = {}
 local CODE_CHARS = {"|","/","\\","-","_",":",".","#","*","+","=","~"}
 
 local function init_code()
-  code_cols      = {}
-  code_highlight = 1
-  code_boost     = 0
+  V.code_cols      = {}
+  V.code_highlight = 1
+  V.code_boost     = 0
   local n = 21
   for i = 0, n - 1 do
-    table.insert(code_cols, {
+    table.insert(V.code_cols, {
       x    = i * 6 + 2,
       y    = math.random(-64, 0),
       spd  = math.random() * 0.8 + 0.4,
@@ -1688,19 +1691,19 @@ local function init_code()
 end
 
 local function code_trigger()
-  code_boost     = 3.0 + audio_level * 4.0
-  code_highlight = (code_highlight % #code_cols) + 1
-  code_cols[code_highlight].bri = 14 + audio_level
+  V.code_boost     = 3.0 + audio_level * 4.0
+  V.code_highlight = (V.code_highlight % #V.code_cols) + 1
+  V.code_cols[V.code_highlight].bri = 14 + audio_level
 end
 
 local function draw_code()
   local bri_scale = params:get("vis_brightness") / 15.0
   local vis_spd   = params:get("vis_speed") * 0.4
-  code_boost      = code_boost * 0.88
-  for ci, c in ipairs(code_cols) do
-    local is_hot = (ci == code_highlight)
+  V.code_boost      = V.code_boost * 0.88
+  for ci, c in ipairs(V.code_cols) do
+    local is_hot = (ci == V.code_highlight)
     c.tick = c.tick + 1
-    local fall = c.spd * (vis_spd + 0.5 + audio_level * 2.0 + code_boost)
+    local fall = c.spd * (vis_spd + 0.5 + audio_level * 2.0 + V.code_boost)
     c.y = c.y + fall
     local char_rate = math.max(1, math.floor((is_hot and 2 or 7) - audio_level * 4))
     if c.tick % char_rate == 0 then c.char = CODE_CHARS[math.random(#CODE_CHARS)] end
@@ -2599,6 +2602,15 @@ local function setup_params()
   params:add_number("vis_brightness", "brightness", 1, 15, 10)
   params:add_number("num_particles",  "particles",  5, 40, 20)
   params:set_action("num_particles",  function()  init_particles() end)
+
+  -- NETWORK: hosts/ports for the strata voice and the DAYDREAM scope. Edited on
+  -- device and persisted in the pset, so a DHCP-drifted IP no longer needs a
+  -- source edit. Read at send-time by strata_send / osc_emit.
+  params:add_separator("NETWORK")
+  params:add_text("strata_host", "strata host", "192.168.1.133")
+  params:add_number("strata_port", "strata port", 1, 65535, 10111)
+  params:add_text("osc_host", "scope host", "192.168.1.229")
+  params:add_number("osc_port", "scope port", 1, 65535, 52178)
 end
 
 ------------------------------------------------------------------------
