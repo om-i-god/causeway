@@ -24,8 +24,8 @@ local BASS_RATE_NAMES = {"2 bars","4 bars","6 bars","8 bars","16 bars"}
 local SEC_RATE_NAMES  = {"1/2 bar","1 bar","2 bars","4 bars","6 bars","8 bars","16 bars"}
 local LEN_NAMES       = {"1/32","1/16","1/8","1/4","1/2","1 bar","2 bars","4 bars","8 bars"}
 
-local OSC_HOST = "192.168.1.229"
-local OSC_PORT = 52178
+-- network hosts (strata sampler + DAYDREAM scope) are configured in the
+-- NETWORK params group, so DHCP drift no longer requires a source edit.
 
 ------------------------------------------------------------------------
 -- state
@@ -61,15 +61,14 @@ local vst_active  = {}
 local strata_active = {}
 
 -- strata (sampler on another norns, over OSC) -------------------------
-local STRATA_HOST = "192.168.1.133"  -- White norns (edit if its IP drifts; DHCP)
-local STRATA_PORT = 10111           -- norns matron OSC-in
+-- host/port live in the NETWORK params group (strata_host / strata_port)
 local strata_clock                  -- coroutine handle
 local strata_pos = 1                -- independent random-walk position
 local strata_dir = 1
 
 local function strata_send(path, ...)
   if params:get("strata_on") ~= 2 then return end
-  osc.send({STRATA_HOST, STRATA_PORT}, path, {...})
+  osc.send({params:get("strata_host"), params:get("strata_port")}, path, {...})
 end
 
 local function strata_note_on(note, vel)
@@ -487,7 +486,7 @@ local OSC_PROMPTS = {
 
 local function osc_emit(path, args)
   if params:get("osc_on") ~= 2 then return end
-  osc.send({OSC_HOST, OSC_PORT}, path, args)
+  osc.send({params:get("osc_host"), params:get("osc_port")}, path, args)
 end
 
 local function active_voice_count()
@@ -2603,6 +2602,15 @@ local function setup_params()
   params:add_number("vis_brightness", "brightness", 1, 15, 10)
   params:add_number("num_particles",  "particles",  5, 40, 20)
   params:set_action("num_particles",  function()  init_particles() end)
+
+  -- NETWORK: hosts/ports for the strata voice and the DAYDREAM scope. Edited on
+  -- device and persisted in the pset, so a DHCP-drifted IP no longer needs a
+  -- source edit. Read at send-time by strata_send / osc_emit.
+  params:add_separator("NETWORK")
+  params:add_text("strata_host", "strata host", "192.168.1.133")
+  params:add_number("strata_port", "strata port", 1, 65535, 10111)
+  params:add_text("osc_host", "scope host", "192.168.1.229")
+  params:add_number("osc_port", "scope port", 1, 65535, 52178)
 end
 
 ------------------------------------------------------------------------
