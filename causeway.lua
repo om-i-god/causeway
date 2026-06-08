@@ -1,7 +1,7 @@
 -- causeway
 -- slow generative music for multiple synths
--- pad + lead + bass + secondary voice
--- v1.0
+-- pad + lead + bass + sec + vst + strata
+-- v1.4
 
 engine.name = "PolySub"
 
